@@ -145,6 +145,10 @@ class KubernetesSparkSetup:
         }
         # TODO: below is added to make the catalog and it's bucket dynamic
         catalog = cluster_details_spark_args["catalog"] if cluster_details_spark_args["catalog"] else None
+        catalog_minio_bucket = cluster_details_spark_args["catalog_minio_bucket"] if cluster_details_spark_args["catalog_minio_bucket"] else None
+
+        hadoop_custom_arguments["spark_job_args"]['catalog_minio_bucket'] = catalog_minio_bucket
+
         k8s_configuration = {
             "apiVersion": "sparkoperator.k8s.io/v1beta2", "kind": "SparkApplication", "metadata": {
                 "name": spark_app_name, "namespace": airflow_var_globals["k8s_namespace"],
@@ -292,25 +296,25 @@ class KubernetesSparkSetup:
                     "spark.sql.parquet.fs.optimized.committer.optimization-enabled": "true",
                     "spark.hadoop.fs.s3a.connection.maximum": "100",
                     "spark.ui.proxyRedirectUri": airflow_var_globals["spark_ui_proxy_redirect_uri"]
+                    
                 }
             }
         }
-        #TODO: Check if the user used different catalog for the dag id outside "datawarehouse"
-        # if catalog is not None and catalog:
-        #     # add the catalog to the sparkConf
-        #     k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalog.{catalog}"] = "org.apache.iceberg.spark.SparkCatalog"
-        #     k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalog.{catalog}.url"]= airflow_var_globals["metastores"][catalog]
-            # k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalo.{catalog}.commit.retry.num-retries"] = 10
-            # k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalo.{catalog}.commit.retry.min-wait-ms"] = 100
-            # k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalo.{catalog}.commit.retry.isolation-level"] = "snapshot"
+        #TODO:
         print(f"This is the catalog result: {catalog}")
-        # k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalog.datawarehouse"] = "org.apache.iceberg.spark.SparkCatalog"
-        # k8s_configuration["spec"]["sparkConf"][f"spark.sql.catalog.datawarehouse.url"]= airflow_var_globals["metastores"]["datawarehouse"]
+     
         return k8s_configuration
 
 
 class BuildDagTaskGroup:
-    
+    @staticmethod
+    def get_task_args_details(task_args={}):
+        task_args_details = {}
+        trigger_rule = task_args.get("trigger_rule", "all_success")
+        
+        task_args_details['trigger_rule'] = trigger_rule
+
+        return task_args_details
     @staticmethod
     def build_spark_details(dag, task_group_key, task_details_key, airflow_task_details, airflow_var_globals,
                             airflow_var_dag_details, common_arguments):
@@ -319,6 +323,7 @@ class BuildDagTaskGroup:
         airflow_tasks_list = []
         spark_kubernetes_args = airflow_task_details[task_group_key][task_details_key].get("spark_kubernetes_args", {})
         spark_job_args = airflow_task_details[task_group_key][task_details_key].get("spark_job_args", {})
+        task_args_details = BuildDagTaskGroup.get_task_args_details(airflow_task_details[task_group_key].get("task_args", {}))
 
         # Adding Common Arguments to Spark Arguments
         for common_args_key in common_arguments.keys():
@@ -346,7 +351,9 @@ class BuildDagTaskGroup:
                                                        spark_kubernetes_operator_args=spark_kubernetes_operator_args,
                                                        spark_kubernetes_sensor_args=spark_kubernetes_sensor_args,
                                                        global_vars=airflow_var_globals,
-                                                       dag=dag)
+                                                       dag=dag,
+                                                       trigger_rule=task_args_details['trigger_rule']
+                                                       )
         airflow_tasks_list.append(spark_job)
 
         return airflow_tasks_list

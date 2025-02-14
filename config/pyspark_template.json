@@ -18,10 +18,10 @@
           "operation_type":"migration",
           "db_details": {
             "db_properties" : {
-              "url": "jdbc:postgresql://192.168.171.115:31432/icpdataing",
+              "url": "jdbc:postgresql://hostname:port/db_name",
               "dbtype": "postgres",
-              "user": "datalake",
-              "password": "e9sAtZ4aBO"
+              "user": "user",
+              "password": "pass"
             },
             "db_table":"attendance",
             "partitioning_column": "id",

@@ -1,5 +1,6 @@
-**Author** - Hemanth Bommireddy
-**Modified** - Merhawi
+**Author(s)** 
+- Hemanth Bommireddy
+- MerhawiKiflemariam
 
 Common DAG Module:
 -----------------
@@ -104,6 +105,7 @@ Airflow Dataset Trigger
 
 
 Database Details
+----------------
 ```
 "db_details": {
     "db_properties" : {
@@ -137,7 +139,7 @@ Database Details
    - **records_per_batch**: The number of records to be included in each batch when reading data.
 
 **Oracle DB:**
----------------
+
 If the database is oracle, please use the below format or value
 - **url**: jdbc:oracle:thin:@<hostname>:<port>/<dbname>
 - **dbtype**: oracle
@@ -155,7 +157,7 @@ class Constants:
 ```
 
 **Partitioning Strategy and Batch Processing**
-
+-------------------------------------------------
 **1. Why Partitioning**
 >Spark JDBC reader is capable of reading data in parallel by splitting it into several partitions. There are four options provided by DataFrameReader:
 
@@ -165,11 +167,14 @@ class Constants:
 
 Partitioning improves performance by allowing Spark to distribute data processing across multiple executors, enabling parallel execution and reducing overall runtime. However, partitioning alone may not be sufficient for handling large datasets efficiently.
 
+
 **2. Big Data Source Problem**
+
 Although partitioning distributes the load across executors, it can still lead to ```Out of Memory (OOM)``` issues when handling extremely large tables. If the dataset is too large for the available memory, partitioning alone is not enough. This is where batching comes into play.
 
 
 **3. What is Batching?**
+
 Batching allows data to be read in multiple smaller batches instead of processing everything at once.
 
 **4. Why is Batch Processing Important?**
@@ -214,5 +219,11 @@ Each batch will execute against the database one by one. However, since partitio
 - **Parition 1:** `SELECT * FROM my_table WHERE id >= 800_000 AND id <= 899_999;`
 - **Parition 2:** `SELECT * FROM my_table WHERE id >= 900_000 AND id <= 1_000_000;`
 
+**Note:**
+
+- **If `partitioning_column` is not provided or None/empty, no batching or partitioning will happen.**
+- **No record below `lower_bound` and beyond `upper_bound` will be selected. If user want to include null values for the `partitioning_column`, `is_col_for_partition_null_supp` must be set to ``True``**
+
 **Reference**
+------------------
 https://luminousmen.com/post/spark-tips-optimizing-jdbc-data-source-reads

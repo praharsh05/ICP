@@ -65,7 +65,7 @@ class DefaultPySparkScript:
         ]
         return data
     
-    def ingest_data(spark, output_warehouse_fq_table, output_wh_table_load_strategy):
+    def ingest_data(spark, output_warehouse_fq_table, output_wh_table_load_strategy, catalog_minio_bucket:str = None, location: str = None):
         from pyspark.sql.types import StructType, StructField, StringType, DoubleType, DateType
 
         data = DefaultPySparkScript.get_dummy_data()
@@ -86,6 +86,15 @@ class DefaultPySparkScript:
         data_df.printSchema()
         data_df.cache()
 
+        if not CommonIcebergUtilities.table_exists(output_warehouse_fq_table=output_warehouse_fq_table, spark=spark):
+            logging.warning(f""">>Table '{output_warehouse_fq_table}' is not available!!!""")
+            CommonIcebergUtilities.create_table(output_warehouse_fq_table=output_warehouse_fq_table,
+                                            spark=spark,
+                                             data_df=data_df,
+                                             catalog_minio_bucket=catalog_minio_bucket,
+                                             location=location
+                                             )
+            
         data_df.show(10, truncate=False)
 
         CommonIcebergUtilities.iceberg_load_operation(spark=spark,
@@ -97,6 +106,9 @@ class DefaultPySparkScript:
        
         data_df.unpersist()
         logging.info(">>Data ingestion completed...")
+        warehouse_catalog, warehouse_schema, warehouse_ref_table = output_warehouse_fq_table.split(".")
+
+        CommonIcebergUtilities.optimize_commands(spark, warehouse_catalog, warehouse_schema, warehouse_ref_table)
 
 class DataMigrationFromDB:
 
@@ -114,6 +126,8 @@ class DataMigrationFromDB:
 
         # Handle date conversion if inputs are strings
         is_datetime_partitioning = isinstance(lower_bound, str) and isinstance(upper_bound, str)
+        print(f"""Start of batches calculation -> is_datetime_partitioning: {is_datetime_partitioning}, 
+              lower_bound: {lower_bound}, upper_bound: {upper_bound},records_per_batch: {records_per_batch}""")
         
         if is_datetime_partitioning:
             try:
@@ -150,7 +164,7 @@ class DataMigrationFromDB:
         batches = []
         start = lower_bound
 
-        while start <= upper_bound:  
+        while start <= upper_bound:
             if is_datetime_partitioning and time_unit:
                 # Handle date increments
                 if time_unit == "days":
@@ -174,132 +188,106 @@ class DataMigrationFromDB:
                     end +=1 #Include the upper_bound
                 batches.append((start, end))
                 start = end + 1  # Move to the next batch start point
-
         return batches
+    
 
     @staticmethod
-    def read_and_load_data_old(dbOps: BaseDBOperations, spark, table_name, column_for_partitioning, selected_columns, 
-                            lower_bound, upper_bound,  num_partitions, output_warehouse_fq_table, output_wh_table_load_strategy,
-                            is_col_for_partition_null_supp=False
-                            ):
-        has_data = True
-        update_lower_bound=lower_bound
-        update_upper_bound=upper_bound
-        iteration_num = 1
+    def load_and_optimize(spark:SparkSession, data_df: DataFrame, output_warehouse_fq_table:str, 
+                output_wh_table_load_strategy:str, merge_data_join_fields: str=None,
+                ):
+        
+        data_df.cache()
 
-        logging.info(f""">>Table info -> table_name: {table_name},  column_for_partitioning: {column_for_partitioning}, num_partitions: {num_partitions},""")
-        while has_data:
-                logging.info(f""">> Iteration : {iteration_num}, lower_bound: {update_lower_bound}, upper_bound: {update_upper_bound}""" )
-               
-                data_df: DataFrame = dbOps.read_data(table_name=table_name,column_names=selected_columns,column_for_partitioning=column_for_partitioning,
-                                        lower_bound=update_lower_bound,upper_bound=update_upper_bound,num_partitions=num_partitions)
-                data_df.cache()
-                
-                # Spark V 3.1 does not support data_df.isEmpty(), it's new on 3.3
-                # count = data_df.count() # It's expensive, don't use it unless it's there is no other option.
-                tmp_df = data_df.take(1)
-                logging.info("Read info -> for iteration {} and take_one_record from Dataframe len {}".format(iteration_num, len(tmp_df)))
-                if len(tmp_df) <= 0:
-                    has_data = False
-                else:
-                   
-                    script_adding_columns = []
-                    # Adding this to remove duplicates, we may get duplicates
-                    if "ingested_at" not in data_df.columns:
-                        data_df = data_df.withColumn("ingested_at", to_timestamp(lit(current_timestamp())))
+         # Spark V 3.1 does not support data_df.isEmpty(), it's new on 3.3
+        # count = data_df.count() # It's expensive, don't use it unless it's there is no other option.
+        tmp_df = data_df.take(1)
+        logging.info("Read info -> take_one_record from Dataframe len {}".format(len(tmp_df)))
+        if len(tmp_df) >= 1:
+            script_adding_columns = []
+            # Adding this to remove duplicates - we may get duplicates
+            if "ingested_at" not in data_df.columns:
+                data_df = data_df.withColumn("ingested_at", to_timestamp(lit(current_timestamp())))
 
-                        script_adding_columns.append("ingested_at")
+                script_adding_columns.append("ingested_at")
 
-                    logging.info(">> Dataframe schema: " + str(data_df.schema))
-                    data_df.show(10)
-                    CommonIcebergUtilities.iceberg_load_operation(spark, output_wh_table_load_strategy, data_df,output_warehouse_fq_table,
-                                                                         script_adding_columns,merge_data_join_fields=None)
-                    update_lower_bound +=upper_bound
-                    update_upper_bound +=upper_bound
-                iteration_num +=1
-                data_df.unpersist()
-
-        # check if there is/are any null values for partitioning column and ingest it if is_col_for_partition_null_supp is True
-        if is_col_for_partition_null_supp and column_for_partitioning is not None:
-            logging.info(f""">>Read Null values for table_name: {table_name},  column_for_partitioning: {column_for_partitioning}, 
-                         num_partitions: {num_partitions}, is_col_for_partition_null_supp: {is_col_for_partition_null_supp}""")
-            if CommonBasicUtilities.isEmpty(column_names) :
-                column_names = "*"
-            query  = f"(select {column_names} from {table_name} where {column_for_partitioning} is null) query"
-            data_df: DataFrame = dbOps.read_data(table_name=table_name,query=query)
-            data_df.cache()
-            logging.info(">> Data samples where column {} is null".format(column_for_partitioning))
+            logging.info(">> Dataframe schema: " + str(data_df.schema))
             data_df.show(10)
+            CommonIcebergUtilities.iceberg_load_operation(spark, output_wh_table_load_strategy, data_df,output_warehouse_fq_table,
+                                                                        script_adding_columns,merge_data_join_fields=None)
+        logging.info(f""">>Ingestion to table '{output_warehouse_fq_table}' completed,""")
 
-            CommonIcebergUtilities.iceberg_load_operation(spark, output_wh_table_load_strategy, 
-                                                          data_df,output_warehouse_fq_table,
-                                                        script_adding_columns,merge_data_join_fields=None)
-            data_df.unpersist()
-            
-        logging.info(f""">>Ingestion to table {table_name} completed,""")
-    
+        data_df.unpersist()
+        
+        warehouse_catalog, warehouse_schema, warehouse_ref_table = output_warehouse_fq_table.split(".")
+
+        CommonIcebergUtilities.optimize_commands(spark, warehouse_catalog, warehouse_schema, warehouse_ref_table)
+
+
     @staticmethod
     def read_and_load_data(dbOps: BaseDBOperations, spark, table_name, column_for_partitioning, selected_columns, 
                             lower_bound, upper_bound,  num_partitions, output_warehouse_fq_table, output_wh_table_load_strategy,
-                            is_col_for_partition_null_supp=False, records_per_batch=1_00_000
+                            is_col_for_partition_null_supp=False, records_per_batch=1_00_000, catalog_minio_bucket:str =None, location:str = None
                             ):
         logging.info(f""">>Table info -> table_name: {table_name},  column_for_partitioning: {column_for_partitioning}, num_partitions: {num_partitions},""")
         
-        iteration_num = 1
-
-        batches = DataMigrationFromDB.calculate_batches(lower_bound=lower_bound, upper_bound=upper_bound,num_partitions=num_partitions,records_per_batch=records_per_batch)
-        logging.info(""">>Batches -> {}""".format(batches))
-        for batch in batches:
-            start, end = batch
-
-            logging.info(f""">>Iteration : {iteration_num}, lower_bound: {start}, upper_bound: {end}""" )
-            
-            data_df: DataFrame = dbOps.read_data(table_name=table_name,column_names=selected_columns,column_for_partitioning=column_for_partitioning,
-                                    lower_bound=start,upper_bound=end,num_partitions=num_partitions)
-            data_df.cache()
-            
-            # Spark V 3.1 does not support data_df.isEmpty(), it's new on 3.3
-            # count = data_df.count() # It's expensive, don't use it unless it's there is no other option.
-            tmp_df = data_df.take(1)
-            logging.info("Read info -> for iteration {} and take_one_record from Dataframe len {}".format(iteration_num, len(tmp_df)))
-            if len(tmp_df) >= 1:
-                script_adding_columns = []
-                # Adding this to remove duplicates - we may get duplicates
-                if "ingested_at" not in data_df.columns:
-                    data_df = data_df.withColumn("ingested_at", to_timestamp(lit(current_timestamp())))
-
-                    script_adding_columns.append("ingested_at")
-
-                logging.info(">> Dataframe schema: " + str(data_df.schema))
-                data_df.show(10)
-                CommonIcebergUtilities.iceberg_load_operation(spark, output_wh_table_load_strategy, data_df,output_warehouse_fq_table,
-                                                                        script_adding_columns,merge_data_join_fields=None)
-            iteration_num +=1
-            data_df.unpersist()
-
-        # check if there is/are any null values for partitioning column and ingest it if is_col_for_partition_null_supp is True
-        if is_col_for_partition_null_supp and column_for_partitioning is not None:
-            logging.info(f""">>Read Null values for table_name: {table_name},  column_for_partitioning: {column_for_partitioning}, 
-                         num_partitions: {num_partitions}, is_col_for_partition_null_supp: {is_col_for_partition_null_supp}""")
-            
-            if CommonBasicUtilities.isEmpty(column_names) :
-                column_names = "*"
-            query  = f"(select {column_names} from {table_name} where {column_for_partitioning} is null) query"
+        if not CommonIcebergUtilities.table_exists(output_warehouse_fq_table=output_warehouse_fq_table, spark=spark):
+            logging.warning(f""">>Table '{output_warehouse_fq_table}' is not available!!!""")
+            if CommonBasicUtilities.isEmpty(selected_columns) :
+                selected_columns = "*"
+            query  = f"(select {selected_columns} from {table_name} limit 1) query"
             data_df: DataFrame = dbOps.read_data(table_name=table_name,query=query)
-            data_df.cache()
-            logging.info(">> Data samples where column {} is null".format(column_for_partitioning))
-            data_df.show(10)
-
-            CommonIcebergUtilities.iceberg_load_operation(spark, output_wh_table_load_strategy, 
-                                                          data_df,output_warehouse_fq_table,
-                                                        script_adding_columns,merge_data_join_fields=None)
-            data_df.unpersist()
             
-        logging.info(f""">>Ingestion to table {table_name} completed,""")
+            CommonIcebergUtilities.create_table(output_warehouse_fq_table=output_warehouse_fq_table,
+                                            spark=spark,
+                                             data_df=data_df,
+                                             catalog_minio_bucket=catalog_minio_bucket,
+                                             location=location
+                                             )
+
+        if not column_for_partitioning:
+            logging.info(f""">>Reading a table: {table_name} where  column_for_partitioning is None/Empty or not provided.
+                        If `column_for_partitioning` is not provided or None/Empty, no batching or partitioning will happen -entire table will load on one executor at one time!!""")
+        
+            data_df: DataFrame = dbOps.read_data(table_name=table_name, column_names=selected_columns)
+
+            DataMigrationFromDB.load_and_optimize(spark=spark, data_df=data_df,output_warehouse_fq_table=output_warehouse_fq_table, 
+                                                   output_wh_table_load_strategy=output_wh_table_load_strategy)
+        else:
+            # column_for_partitioning is provided
+            iteration_num = 1
+
+            batches = DataMigrationFromDB.calculate_batches(lower_bound=lower_bound, upper_bound=upper_bound,num_partitions=num_partitions,records_per_batch=records_per_batch)
+            logging.info(""">>Batches -> {}""".format(batches))
+            for batch in batches:
+                start, end = batch
+
+                logging.info(f""">>Iteration : {iteration_num}, lower_bound: {start}, upper_bound: {end}""" )
+                
+                data_df: DataFrame = dbOps.read_data(table_name=table_name,column_names=selected_columns,column_for_partitioning=column_for_partitioning,
+                                        lower_bound=start,upper_bound=end,num_partitions=num_partitions)
+                
+                DataMigrationFromDB.load_and_optimize(spark=spark, data_df=data_df,output_warehouse_fq_table=output_warehouse_fq_table, 
+                                                    output_wh_table_load_strategy=output_wh_table_load_strategy)
+                iteration_num +=1
+
+            # check if there is/are any null values for partitioning column and ingest it if is_col_for_partition_null_supp is True
+            if is_col_for_partition_null_supp and column_for_partitioning is not None:
+                logging.info(f""">>Read Null values for table_name: {table_name},  column_for_partitioning: {column_for_partitioning}, 
+                            num_partitions: {num_partitions}, is_col_for_partition_null_supp: {is_col_for_partition_null_supp}""")
+                
+                if CommonBasicUtilities.isEmpty(selected_columns) :
+                    selected_columns = "*"
+                query  = f"(select {selected_columns} from {table_name} where {column_for_partitioning} is null) query"
+                data_df: DataFrame = dbOps.read_data(table_name=table_name,query=query)
+
+                DataMigrationFromDB.load_and_optimize(spark=spark, data_df=data_df,output_warehouse_fq_table=output_warehouse_fq_table, 
+                                                   output_wh_table_load_strategy=output_wh_table_load_strategy)
 
 
     @staticmethod        
-    def run_ingestion_pipeline(spark: SparkSession, output_wh_table_load_strategy, output_warehouse_fq_table, output_table_snapshots_delete_period, db_details):                                             
+    def run_ingestion_pipeline(spark: SparkSession, output_wh_table_load_strategy, output_warehouse_fq_table, 
+                               output_table_snapshots_delete_period, db_details,location:str = None, catalog_minio_bucket:str = None
+                               ):                                             
       
         db_properties = db_details.get("db_properties", {})
         table_name  = db_details.get("db_table", None)
@@ -309,24 +297,23 @@ class DataMigrationFromDB:
         num_partitions  = db_details.get("num_partitions", Constants.DEFAULT_NUMBER_OF_PARTITIONS)
         selected_columns  = db_details.get("selected_columns", [])
         is_col_for_partition_null_supp  = bool(db_details.get("is_col_for_partition_null_supp", Constants.DEFAULT_IS_COL_FOR_PARTITION_NULL_SUPP))
-        records_per_batch  = bool(db_details.get("records_per_batch", Constants.DEFAULT_RECORDS_PER_BATCH))
+        records_per_batch  = db_details.get("records_per_batch", Constants.DEFAULT_RECORDS_PER_BATCH)
         
-        if not column_for_partitioning:
-            raise Exception("column_for_partitioning cannot be null!!!!")
         
         formated_selected_columns = CommonDataUtilities.parse_selected_columns(selected_columns, column_for_partitioning)
         logging.info("selected_columns: {}".format(str(formated_selected_columns)))
 
         dbOps: BaseDBOperations = DBOperationsFactory().create(db_properties, spark)
-
+        
+        
         DataMigrationFromDB.read_and_load_data(dbOps, spark, table_name, column_for_partitioning, formated_selected_columns, lower_bound, 
                                         upper_bound, num_partitions, output_warehouse_fq_table, output_wh_table_load_strategy, 
-                                        is_col_for_partition_null_supp, records_per_batch=records_per_batch)
+                                        is_col_for_partition_null_supp,
+                                        records_per_batch=records_per_batch
+                                        ,catalog_minio_bucket=catalog_minio_bucket
+                                        ,location=location
+                                        )
 
-
-        warehouse_catalog, warehouse_schema, warehouse_ref_table = output_warehouse_fq_table.split(".")
-
-        CommonIcebergUtilities.optimize_commands(spark, warehouse_catalog, warehouse_schema, warehouse_ref_table)
 
 def main():
     try:
@@ -339,6 +326,9 @@ def main():
         output_warehouse_fq_table = spark_job_args["output_warehouse_fq_table"]
         output_wh_table_load_strategy = spark_job_args.get("output_wh_table_load_strategy", "APPEND")
         output_table_snapshots_delete_period = spark_job_args.get("output_table_snapshots_delete_period", 60)
+        location = spark_job_args.get("output_table_location", None)
+        catalog_minio_bucket = spark_job_args.get("catalog_minio_bucket", None) #This is from no need to add in the config,
+        
 
         logging.info("""output_warehouse_fq_table: %s, output_wh_table_load_strategy: %s, output_table_snapshots_delete_period: %s
                 """.format(output_warehouse_fq_table, output_wh_table_load_strategy, output_table_snapshots_delete_period))
@@ -348,11 +338,16 @@ def main():
                                                        ,output_wh_table_load_strategy=output_wh_table_load_strategy
                                                        ,output_warehouse_fq_table=output_warehouse_fq_table
                                                         ,output_table_snapshots_delete_period=output_table_snapshots_delete_period
-                                                        ,db_details=db_details)
+                                                        ,db_details=db_details
+                                                        ,location=location
+                                                        ,catalog_minio_bucket=catalog_minio_bucket
+                                                        )
         else:
             DefaultPySparkScript.ingest_data(spark=spark
                                              ,output_warehouse_fq_table=output_warehouse_fq_table
                                              ,output_wh_table_load_strategy=output_wh_table_load_strategy
+                                             ,location=location
+                                             ,catalog_minio_bucket=catalog_minio_bucket
                                              )
     except Exception as ex:
         logging.error(ex)

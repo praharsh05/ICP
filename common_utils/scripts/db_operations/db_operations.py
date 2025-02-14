@@ -70,10 +70,18 @@ class BaseDBOperations(ABC):
         if query:
             # Use the provided query directly
             return self._read_data(query)
+        
+        elif CommonBasicUtilities.isEmpty(column_for_partitioning): #If column_for_partitioning is empty or none
+            if CommonBasicUtilities.isEmpty(column_names):
+                column_names = "*"
+            query  = f"(select {column_names} from {table_name}) query" #when column_for_partitioning is None,lower and upper boundries are not needed.
+            return self._read_data(query)
+
         elif not CommonBasicUtilities.isEmpty(column_for_partitioning) and lower_bound is not None and upper_bound is not None and num_partitions is not None:
             # Handle partitioning logic
             return self._read_data(table_name=table_name, column=column_for_partitioning, lower_bound=lower_bound, 
                                     upper_bound=upper_bound, num_partitions=num_partitions, column_names=column_names)
+        
         else:
             # Default to pagination logic
             query = self.build_select_query(table_name, column_names, where_clause, orderby_clause,

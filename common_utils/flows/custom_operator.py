@@ -3,6 +3,8 @@ from airflow.providers.cncf.kubernetes.operators.spark_kubernetes import SparkKu
 from airflow.providers.cncf.kubernetes.sensors.spark_kubernetes import SparkKubernetesSensor
 from airflow.utils.decorators import apply_defaults
 from airflow.models import BaseOperator
+from airflow.utils.trigger_rule import TriggerRule 
+
 
 # Creating custom Airflow spark Kubernetes operator to handle both submit and monitor
 # ******************************************************************************************************
@@ -10,7 +12,8 @@ from airflow.models import BaseOperator
 
 class CustomSparkKubernetesSubmitMonitor(BaseOperator):
     @apply_defaults
-    def __init__(self, spark_kubernetes_operator_args, spark_kubernetes_sensor_args, global_vars, *args, **kwargs):
+    def __init__(self, spark_kubernetes_operator_args, spark_kubernetes_sensor_args, global_vars,trigger_rule=TriggerRule.ALL_SUCCESS, *args, **kwargs):
+        kwargs["trigger_rule"] = trigger_rule  # Explicitly set trigger_rule
         super().__init__(*args, **kwargs)
         self.spark_kubernetes_operator_args = spark_kubernetes_operator_args
         self.spark_kubernetes_sensor_args = spark_kubernetes_sensor_args

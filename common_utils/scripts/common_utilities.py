@@ -1,6 +1,7 @@
 
 from pyspark.sql.functions import col
-
+from pyspark.sql import SparkSession
+from pyspark.sql.dataframe import DataFrame
 
 class CommonLogging:
     @staticmethod
@@ -338,3 +339,47 @@ class CommonIcebergUtilities:
         return casted_columns
     
  
+    @staticmethod
+    def table_exists(output_warehouse_fq_table: str, spark: SparkSession) -> bool:
+        database, table_name = output_warehouse_fq_table.rsplit(".", 1)
+        df = spark.sql(f"SHOW TABLES IN {database}")
+        return table_name in df.select("tableName").rdd.flatMap(lambda x: x).collect()
+    
+    @staticmethod
+    def create_table(output_warehouse_fq_table: str, spark: SparkSession, data_df: DataFrame, catalog_minio_bucket:str = None, location:str = None):
+
+         # Get the schema from the DataFrame
+        if not catalog_minio_bucket:
+            raise Exception("Bucket name must not be null or empty to create table!!!!")
+        
+        schema_fields = []
+        for field in data_df.schema.fields:
+            col_name = field.name
+            col_type = field.dataType.simpleString().upper()  # Convert Spark SQL type to uppercase
+            schema_fields.append(f"{col_name} {col_type}")
+            
+        # Add 'ingested_at TIMESTAMP' if not already present
+        if not any("INGESTED_AT" in field.upper() for field in schema_fields):
+            schema_fields.append("ingested_at TIMESTAMP")
+            
+        logging.info(""">>Table schema: {}""".format(schema_fields))
+
+        table_catalog, table_schema, table = output_warehouse_fq_table.split(".")
+        if not location:
+            location = f"s3a://{catalog_minio_bucket}/{table_schema}/{table}"
+
+        query = f"""
+                    CREATE TABLE {output_warehouse_fq_table} (
+                        {", ".join(schema_fields)}
+                    )
+                    USING iceberg
+                    LOCATION '{location}'  -- Specifies the table's physical location
+                    TBLPROPERTIES (
+                        'format'='parquet',        -- Storage format
+                        'format-version'='2'       -- Iceberg format version
+                    )
+                """
+        # Execute SQL query
+        logging.info(f""">>Table '{output_warehouse_fq_table}' will be created at location '{location}'!!!""")
+        spark.sql(query)
+        print(f"Table {output_warehouse_fq_table} created successfully.")

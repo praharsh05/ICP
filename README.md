@@ -1,111 +1,125 @@
-**Author(s)** 
-- Hemanth Bommireddy
-- MerhawiKiflemariam
 
-Common DAG Module:
------------------
-**aiflow-task-dependencies-details**
+# Pyspark Data Migration Generic Framework
 
-1. By default, if we don't provide , it will keep all the tasks run in Parallel.
-2. Airflow task Dependencies, Provide as parent-child relationship for every node.
-             "aiflow-task-dependencies-details": {
+## Table Contents
+## Table of Contents
+1. [Author(s)](#authors)
+2. [Framework Overview](#framework-overview)
+3. [Configuration Description](#configuration-description)
+   1. [DAG Details](#1-dag-details)
+   2. [Airflow Task Dependencies](#2-airflow-task-dependencies)
+   3. [Spark Jobs](#3-spark-jobs)
+   4. [Airflow Task Args](#4-airflow-task-args)
+   5. [Database Details](#5-database-details)
+4. [Usage of the Framework](#usage-of-the-framework)
+5. [Aiflow task retries](#airflow-task-retries)
+6. [Acknowledgmentss](#acknowledgments)
+7. [Reference](#reference)
+
+
+## Author(s)
+- Merhawi Kiflemariam
+
+## Framework Overview
+This framework is a scalable, configurable, and automated ETL framework designed for running PySpark jobs on Kubernetes, orchestrated by Apache Airflow. It enables seamless data migration from databases (PostgreSQL, Oracle) to Iceberg tables, ensuring optimal performance through parallel execution, batch processing, and partitioning strategies.
+
+The system provides a template-driven approach, allowing users to define DAGs, configure Spark job parameters, and manage data ingestion with minimal effort. The framework is designed to handle large-scale data processing efficiently while preventing memory issues (OOM) by leveraging dynamic partitioning and batching techniques.
+
+With Airflow DAGs managing execution flow and Kubernetes handling Spark workloads, this framework ensures high availability, fault tolerance, and distributed processing for enterprise-scale ETL workflows. 🚀
+
+
+## Configuration Description
+
+### 1. DAG Details
+- DAG ID: id of the airflow dag like `pyspark_template`
+- Description: Description of the project (Optional)
+
+### 2. Airflow Task Dependencies: 
+#### Execution Modes: **aiflow-task-dependencies-details**
+By default, if not provide , it will keep all the tasks run in `Parallel`.
+
+##### A. Sequential Execution
+For sequential execution, define:
+
+```
+"aiflow-task-dependencies-details": {
+    "task-auto-dependencies": {
+        "trigger_order": "sequential"
+    }
+}
+```
+##### B. Parent-Child Relationship
+
+Airflow task Dependencies, Provide as parent-child relationship for every node. Below is just one example of parent-child-relation, but it can be configured in multiple ways.
+
+```
+"aiflow-task-dependencies-details": {
                                   "parent-child-relation":{
-                                       "task1": ["predecessor", "successor"],
-                                      "task2": ["predecessor", "successor"],
+                                    "task1": ["start"],
+                                    "task2": ["start"],
+                                    "task3": ["task1", "task2"],
+                                    "end": ["task3"],
                               } }
 
-3. Airflow task dependencies - Provide Task dependencies to run keep it as sequential.  
-                     "aiflow-task-dependencies-details": {
-                                 "task-auto-dependencies":{"trigger_order": "sequential"}
-                              } 
-4. Airflow task dependencies - Provide Task dependencies to run keep it as Parallel with config as number per each group.  
-   a. trigger_rule is "all_done" means id all predecessors is just completed , then successor will trigger irrespective of success or failure.
-                        "aiflow-task-dependencies-details": {
-                                    "task-auto-dependencies":{"trigger_order": "parallel", "max_tasks_per_group": 3, "trigger_rule":  "all_done"}
-                                 }
-                              
+```
+##### C. Grouping Parallel tasks
+Provide Task dependencies to run keep it as `Parallel` with config as number per each group.
+
+```
+    "aiflow-task-dependencies-details": {
+            "task-auto-dependencies":{"trigger_order": "parallel", "max_tasks_per_group": 3}
+        }
+```
 
 
-Spark Jobs:
------------
-1. "spark_kubernetes_args"  - Config values to submit spark jobs in Kubernetes. If we dont' provide , it will take default values.
+
+### 3. Spark Jobs
+
+A. `spark_kubernetes_args`  - Config values to submit spark jobs in Kubernetes. If not provided , it will take default values.
  
    * Default values for spark drive and executor resources.
    * Default values for Kubernetes scheduler options.
-   * Default Spark job main script.
+   * Default Spark job main script.*
    
-2. "spark_job_args" - Spark job arguments.
-   * "python_dependencies_base_paths" - Default python utils path will provide to spark job as dependency if we don't provide.
-   * "project_dir_name" - The must be the project directory name. This is mandatory to package the project and add to spark PyFile so that it will ship the entire project to every 
-   executor.
-   
-  *    
-    
-Usage of the Airflow Pipelines:
--------------------------------
+B. `spark_job_args` - Spark job arguments.
+- **project_dir_name**: The must be the project directory name. This is mandatory to package the project and add to spark PyFile so that it will ship the entire project to every executor.
+- **output_warehouse_fq_table**: The output table name must be in <catalog>.<schema>.<table> format
+- **output_wh_table_load_strategy**: The table load strategy, supported strategies are `Append`, `merge_upsert`,`merge_insert`  and `insert_overwrite`. But as of know, only `append` is rigourosly tested. Default value is `append`.
+- **operation_type**: `migration` (optional, default value is `default`).
+    - If `migration` is provided, it will migrate data based on db details to destination.
+    - If not provided or the value is other than `migration`, it will use default spark data ingestion (it will ingest dummy data)
+-  **location**: Location of the iceberg table if new table is needed to create automaticly.
+    - Default location:  `s3a://{catalog_minio_bucket}/{table_schema}/{table}`
+- **python_dependencies_base_paths**: Default python utils path will provide to spark job as dependency if not provided.
+`
 
-1.  Config Json file (Directory: <project_name>\config\)
-  a. Currently, pipelines are executing all sql files through Trino and Using "python details". 
-  b. Provide airflow task name and target_table name for python operator. It will find the transform.sql path based on directory structure.
-  c. Provide "aiflow-task-dependencies-details" accordingly. if not provided, it will keep all tasks as default configured.
+### 4. Airflow Task Args
 
-2. Dag file/ flows file (Directory: <project_name>\flows\)
-   a. create a new dag file , make sure config file name and dag file name should be same except extension.
-            
-           config file: aspect_pipeline.json
-           dag file   : aspect_pipeline.py
-   b. Follow the existing directory structure for to keep <project_name>.sql files.
-      
-          <project_name>/scripts/sql/<project_name>.sql
-          <project_name>/scripts/sql/<project_name>.sql
-
-
-Aiflow task retries:
---------------------
-
-1. Provide retries and retry_delay at dag level as below , retry_delay in seconds. Default from Airflow is 300 seconds.
-        "pyspark_template": {
-        "start_date": "2023-07-25 00:00:00", 
-        "schedule_interval": "30 4 * * *", 
-        "tags":["pyspark_template", "template"], 
-        "retries": 2, 
-        "retry_delay": 900 
-    }
-2. If we don't provide them at dag level as in above step-1, it will consider from "AIRFLOW_DAG_DEFAULT_ARGS"
-       {
-        "max_active_runs": 1,
-         "retries": 1,
+Any task argument will be provided under the `task_args` object.
+```
+"task_args":{
+          "trigger_rule":"all_success"
         }
-3. If values are not available in above both steps, kept default values.
-    "retries": 1
-    "retry_delay": it takes airflow default value
-
-4. If start_date is not provided in the dag level, it will take a default value 30 days back from the current time, when the job is runing.
-   
-
-Airflow Dataset Trigger 
------------------------
-
-1. Parent DAG - Add a flag in airflow variable (DAG level) to track dataset outlet.
-      "parent-dag-name": {
-           "start_date": "2023-07-01 00:00:00",
-           "schedule_interval": "00 02 * * *",
-           "dataset_outlet_flag": true,
-           "tags": []
-       }
-      
-2. Child DAG - Update DAG schedule from Schedule interval to Schedule_dataset.
-
-    "child-dag-name": {
-          "start_date": "2023-10-16 00:00:00",
-          "schedule_dataset": ["parent-dag-name"],
-          "tags": []
-       }
+```
+#### A. Airflow Trigger Rule (Optional):
+> Trigger rules are used to determine when a task should run in relation to the previous task. By default, Airflow runs a task when all directly upstream tasks are successful. However, you can change this behavior using the trigger_rule parameter in the task definition.
+> ##### Available trigger rules in Airflow
+> The following trigger rules are available:
+> - **all_success**: (default) The task runs only when all upstream tasks have succeeded.
+>- **all_failed**: The task runs only when all upstream tasks are in a failed or upstream_failed state.
+> - **all_done**: The task runs once all upstream tasks are done with their execution.
+> - **all_skipped**: The task runs only when all upstream tasks have been skipped.
+> - **one_failed**: The task runs when at least one upstream task has failed.
+> - one_success: The task runs when at least one upstream task has succeeded.
+> **one_done**: The task runs when at least one upstream task has either succeeded or failed.
+> - **none_failed**: The task runs only when all upstream tasks have succeeded or been skipped.
+> - **none_failed_min_one_success**: The task runs only when all upstream tasks have not failed or upstream_failed, and at least one upstream task has succeeded.
+> - **none_skipped**: The task runs only when no upstream task is in a skipped state.
+> - **always**: The task runs at any time.
 
 
+### 5. Database Details
 
-Database Details
-----------------
 ```
 "db_details": {
     "db_properties" : {
@@ -126,8 +140,7 @@ Database Details
 
 ```
 
-
-**Key Parameters:**
+#### Key Parameters
    - **db_properties**: A dictionary that includes the necessary properties to connect to the database, including url (JDBC connection string), dbtype (type of database), user (username), and password (password).
    - **db_table**: The name of the table in the database that you want to migrate.
    - **partitioning_column**: The column used for partitioning the data during the migration (must be a column with numerical, date or timestamp values).
@@ -156,8 +169,7 @@ class Constants:
     DEFAULT_IS_COL_FOR_PARTITION_NULL_SUPP = False
 ```
 
-**Partitioning Strategy and Batch Processing**
--------------------------------------------------
+#### Partitioning Strategy and Batch Processing
 **1. Why Partitioning**
 >Spark JDBC reader is capable of reading data in parallel by splitting it into several partitions. There are four options provided by DataFrameReader:
 
@@ -224,6 +236,61 @@ Each batch will execute against the database one by one. However, since partitio
 - **If `partitioning_column` is not provided or None/empty, no batching or partitioning will happen.**
 - **No record below `lower_bound` and beyond `upper_bound` will be selected. If user want to include null values for the `partitioning_column`, `is_col_for_partition_null_supp` must be set to ``True``**
 
-**Reference**
-------------------
+## Usage of the Framework:
+
+1.  Config json file (Directory <project_name>\config)
+  a. Make sure all the above mandatory [configs](#configuration-description) are provided. And add the `dag_id` value to the `AIRFLOW_PIPELINES` of airflow environment variable - add at least the below to `AIRFLOW_PIPELINES`:
+    "<dag_id>": {
+       "catalog": <catalog_name>
+    }
+2. Dag flows file (Directory: <project_name>\flows\)
+   a.  make sure config file name and dag file name should be same except extension.
+            
+           config file: aspect_pipeline.json
+           dag file   : aspect_pipeline.py
+3. Script file (Directory: <project_name>\scripts\)
+    a. Put the script (spark code) file under this folder, and make sure the `pyspark_job_main_file_s3_path` variable in the config file is updated accordingly.
+    ```
+    pyspark_job_main_file_s3_path": "s3a://workflows/<project_name>/scripts/<script_file>.py",
+    ```
+4. Upload the entire project on minio under `/workflows`. 
+5. Go to the airflow and search the dag using `dag_id` provided in the config - it might take 1-3 minutes to appear on airflow.
+6. Start the dag - If everything configured well and the `operation_type` is not `migration`, at least it should create new table (if not exist) and ingest the dammy data.
+
+7. In all cases - `migration` or `default`(ingesting dummy data), if the provided table is not availabe in the catalog, the framework will create table based on the dataframe columns and respective datatypes.
+
+8. If table exist, the framework will get the table description and cast the dataframe datatype against corrosponding columns from the table.
+
+9. If any issue faced for the `migration`, try to debug as per the airflow log. **Remember this framework is generic, you can customize the script file as per your need.**
+
+
+## Aiflow task retries:
+
+1. Provide retries and retry_delay at dag level (to `AIRFLOW_PIPELINES`) as below , retry_delay in seconds. Default from Airflow is 300 seconds.
+        "<dag_id>": {
+        "start_date": "2023-07-25 00:00:00", 
+        "schedule_interval": "30 4 * * *", 
+        "tags":["<dag_id>", "..."], 
+        "retries": 2, 
+        "retry_delay": 900 
+    }
+2. If not provided them at dag level as in above step-1, it will consider from `AIRFLOW_DAG_DEFAULT_ARGS`
+       {
+        "max_active_runs": 1,
+         "retries": 1,
+        }
+3. If values are not available in above both steps, kept default values.
+    "retries": 1
+    "retry_delay": it takes airflow default value
+
+4. If start_date is not provided in the dag level, it will take a default value 30 days back from the current time, when the job is runing.
+   
+
+## Acknowledgments
+- Special thanks to Hemanth Bommireddy for the original framework, which served as the foundation for this project.
+
+## Reference:
+
 https://luminousmen.com/post/spark-tips-optimizing-jdbc-data-source-reads
+
+https://www.astronomer.io/docs/learn/airflow-trigger-rules/

@@ -342,7 +342,9 @@ class CommonIcebergUtilities:
     @staticmethod
     def table_exists(output_warehouse_fq_table: str, spark: SparkSession) -> bool:
         database, table_name = output_warehouse_fq_table.rsplit(".", 1)
+        logging.info(f"Schema info -> {database}")
         df = spark.sql(f"SHOW TABLES IN {database}")
+        df.show(20)
         return table_name in df.select("tableName").rdd.flatMap(lambda x: x).collect()
     
     @staticmethod
@@ -350,7 +352,7 @@ class CommonIcebergUtilities:
 
          # Get the schema from the DataFrame
         if not catalog_minio_bucket:
-            raise Exception("Bucket name must not be null or empty to create table!!!!")
+            raise Exception("Catalog MinIO bucket name must not be null or empty to create table!!!!")
         
         schema_fields = []
         for field in data_df.schema.fields:

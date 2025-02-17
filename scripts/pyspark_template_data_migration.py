@@ -10,12 +10,8 @@ from datetime import datetime, timedelta
 # TODO: this is added to help airflow detect common_utils as module
 import sys
 sys.path.append("/workflows/pyspark_template/")
-# sys.path.append("/workflows/pyspark_template/scripts")
 print("Sys Path:", sys.path)
-print("Scripts Exists?", os.path.exists("/workflows/pyspark_template/scripts/default_data_ingestion.py"))
-print("Scripts in sys.path?", "/workflows/pyspark_template/scripts" in sys.path)
 
-print("Current working directory:", sys.path)
 
 from common_utils.scripts.common_utilities import CommonLogging, CommonIcebergUtilities
 from common_utils.scripts.helper.common_helper_utilities import CommonBasicUtilities, CommonProcessHelperUtils, CommonAPIUtilities
@@ -25,8 +21,6 @@ from common_utils.scripts.s3.common_s3_utilities import CommonS3Utilities
 from common_utils.scripts.db_operations.db_operations_factory import DBOperationsFactory
 from common_utils.scripts.db_operations.db_operations import BaseDBOperations
 
-# from scripts.default_data_ingestion import DefaultPySparkScript
-# from scripts.data_migration_from_db import DataMigrationFromDB
 
 logging = CommonLogging.get_logger()
 
@@ -158,8 +152,8 @@ class DataMigrationFromDB:
             raise ValueError(f"records_per_batch must be positive -> records_per_batch:{records_per_batch}.")
         
         # Ensure records_per_batch is a multiple of num_partitions
-        if records_per_batch % num_partitions != 0:
-            records_per_batch = (records_per_batch // num_partitions) * num_partitions
+        # if records_per_batch % num_partitions != 0:
+        #     records_per_batch = (records_per_batch // num_partitions) * num_partitions
         
         batches = []
         start = lower_bound
@@ -234,7 +228,7 @@ class DataMigrationFromDB:
             logging.warning(f""">>Table '{output_warehouse_fq_table}' is not available!!!""")
             if CommonBasicUtilities.isEmpty(selected_columns) :
                 selected_columns = "*"
-            query  = f"(select {selected_columns} from {table_name} limit 1) query"
+            query  = f"select {selected_columns} from {table_name} limit 1"
             data_df: DataFrame = dbOps.read_data(table_name=table_name,query=query)
             
             CommonIcebergUtilities.create_table(output_warehouse_fq_table=output_warehouse_fq_table,
@@ -277,7 +271,7 @@ class DataMigrationFromDB:
                 
                 if CommonBasicUtilities.isEmpty(selected_columns) :
                     selected_columns = "*"
-                query  = f"(select {selected_columns} from {table_name} where {column_for_partitioning} is null) query"
+                query  = f"select {selected_columns} from {table_name} where {column_for_partitioning} is null"
                 data_df: DataFrame = dbOps.read_data(table_name=table_name,query=query)
 
                 DataMigrationFromDB.load_and_optimize(spark=spark, data_df=data_df,output_warehouse_fq_table=output_warehouse_fq_table, 
@@ -286,7 +280,8 @@ class DataMigrationFromDB:
 
     @staticmethod        
     def run_ingestion_pipeline(spark: SparkSession, output_wh_table_load_strategy, output_warehouse_fq_table, 
-                               output_table_snapshots_delete_period, db_details,location:str = None, catalog_minio_bucket:str = None
+                               output_table_snapshots_delete_period, db_details,location:str = None, 
+                               catalog_minio_bucket:str = None
                                ):                                             
       
         db_properties = db_details.get("db_properties", {})
@@ -327,7 +322,7 @@ def main():
         output_wh_table_load_strategy = spark_job_args.get("output_wh_table_load_strategy", "APPEND")
         output_table_snapshots_delete_period = spark_job_args.get("output_table_snapshots_delete_period", 60)
         location = spark_job_args.get("output_table_location", None)
-        catalog_minio_bucket = spark_job_args.get("catalog_minio_bucket", None) #This is from no need to add in the config,
+        catalog_minio_bucket = spark_job_args.get("catalog_minio_bucket", None) #This is from ENV var, no need to add in the config,
         
 
         logging.info("""output_warehouse_fq_table: %s, output_wh_table_load_strategy: %s, output_table_snapshots_delete_period: %s

@@ -280,7 +280,7 @@ class KubernetesSparkSetup:
                     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
                     "spark.sql.catalog.spark_catalog": "org.apache.iceberg.spark.SparkSessionCatalog",
                     "spark.sql.catalog.spark_catalog.type": "hive",
-                    "spark.sql.catalog.{}".format(catalog): "org.apache.iceberg.spark.SparkSessionCatalog",
+                    "spark.sql.catalog.{}".format(catalog): "org.apache.iceberg.spark.SparkCatalog",
                     "spark.sql.catalog.{}.uri".format(catalog): airflow_var_globals["metastores"]["{}".format(catalog)],
                     "spark.sql.iceberg.handle-timestamp-without-timezone": "true",
                      "spark.eventLog.enabled": "true",

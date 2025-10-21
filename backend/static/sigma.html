@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Family Tree Viewer</title>
+<style>
+  :root { --bg:#fff; --gold:#DAA520; --text:#1f2937; }
+  html, body { margin:0; padding:0; height:100%; }
+  body{ background:var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+  #toolbar{ padding:10px 14px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;}
+  #title{ font-weight:600; color:var(--gold); letter-spacing:.3px;}
+  #graph{ height:calc(100vh - 52px); width:100vw; }
+  button{ background:var(--gold); color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer;}
+</style>
+
+<!-- Graphology & Sigma (UMD) -->
+<script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://unpkg.com/graphology-layout-forceatlas2/worker.js"></script>
+<script src="https://unpkg.com/graphology-layout-forceatlas2/umd/graphology-layout-forceatlas2.js"></script>
+<script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
+</head>
+<body>
+  <div id="toolbar">
+    <div id="title">Family Tree</div>
+    <div style="margin-left:auto; display:flex; gap:8px">
+      <button id="reset">Reset</button>
+      <button id="fit">Fit</button>
+    </div>
+  </div>
+  <div id="graph"></div>
+
+<script>
+(function () {
+  const container = document.getElementById("graph");
+
+  // Wait until globals from CDNs are present
+  function waitForGlobals(checkFn, onReady, timeoutMs = 6000) {
+    const start = Date.now();
+    (function tick() {
+      if (checkFn()) return onReady();
+      if (Date.now() - start > timeoutMs) {
+        container.innerHTML = "<div style='padding:20px;color:#a00'>Sigma/Graphology scripts failed to load. Check network/CDN access.</div>";
+        return;
+      }
+      setTimeout(tick, 100);
+    })();
+  }
+
+  function qp(name){ const u=new URL(window.location.href); return u.searchParams.get(name); }
+  const eid = qp("eid") || "E1";
+  const api = qp("api") || window.location.origin;
+
+  waitForGlobals(
+    () => !!(window.graphology && (window.sigma || window.Sigma)),
+    () => {
+      // Resolve constructors/exports across UMD variants
+      const FA2 = window.forceAtlas2 || window.graphologyLayoutForceAtlas2;
+      const GraphCtor = (window.graphology && (window.graphology.DirectedGraph || window.graphology.Graph)) || window.graphology.Graph;
+      const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma; // <- robust Sigma ctor
+
+      if (!SigmaCtor) {
+        container.innerHTML = "<div style='padding:20px;color:#a00'>Sigma ctor not found on window.sigma.Sigma or window.Sigma.</div>";
+        return;
+      }
+
+      function centerCamera(renderer, g) {
+        const xs=[], ys=[];
+        g.forEachNode((n,a)=>{ xs.push(a.x||0); ys.push(a.y||0); });
+        if (!xs.length) return;
+        const minX=Math.min(...xs), maxX=Math.max(...xs);
+        const minY=Math.min(...ys), maxY=Math.max(...ys);
+        const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
+        const extent=Math.max(maxX-minX, maxY-minY) || 1;
+        renderer.getCamera().setState({ x:cx, y:cy, ratio: Math.max(1, extent*1.5) });
+      }
+
+      fetch(`${api}/api/v1/persons/${eid}/tree?depth=3&lang=en`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.nodes || !data.nodes.length) {
+            container.innerHTML = "<div style='padding:20px;color:#a00'>No nodes returned for this ID.</div>";
+            return;
+          }
+
+          const g = new GraphCtor({ multi:false, allowSelfLoops:false });
+
+          function nodeStyle(n){
+            const kin=(n.kin||"").toLowerCase(), cluster=n.cluster||"";
+            let size=10;
+            if (kin.includes("grand") || cluster==="ancestors" || cluster==="descendants") size=14;
+            if (kin==="self") size=16;
+            const color = kin==="self" ? "#DAA520" : (cluster==="inlaws" ? "#c9a227" : "#b8b8b8");
+            return {size,color};
+          }
+
+          // Seed positions
+          data.nodes.forEach(n => {
+            const s=nodeStyle(n);
+            g.addNode(n.id, {
+              label: n.label || n.id,
+              size: s.size, color: s.color,
+              kin: n.kin || "", cluster: n.cluster || "",
+              x: Math.random(), y: Math.random()
+            });
+          });
+
+          // Directed edges w/ key when available
+          data.edges.forEach((e, idx) => {
+            if (!e || e.source===e.target || !g.hasNode(e.source) || !g.hasNode(e.target)) return;
+            const key = `${e.source}->${e.target}#${idx}`;
+            const attrs = { type:"arrow", color:"#dcdcdc", size:1, label:e.type };
+            if (typeof g.addDirectedEdgeWithKey === "function") g.addDirectedEdgeWithKey(key, e.source, e.target, attrs);
+            else if (typeof g.addEdgeWithKey === "function") g.addEdgeWithKey(key, e.source, e.target, attrs);
+            else if (typeof g.addDirectedEdge === "function") g.addDirectedEdge(e.source, e.target, attrs);
+            else g.addEdge(e.source, e.target, attrs);
+          });
+
+          // Layout
+          if (FA2 && typeof FA2.assign === "function") {
+            FA2.assign(g, { iterations: 250, settings: { gravity: 1, scalingRatio: 10 } });
+          }
+
+          const renderer = new SigmaCtor(g, container, {
+            renderEdgeLabels:true,
+            labelDensity: 0.8,
+            labelGridCellSize: 60,
+            defaultEdgeType: "arrow",
+            defaultEdgeColor: "#DCDCDC",
+            edgeLabelSize: "proportional",
+            edgeLabelFont: "sans-serif" 
+          });
+
+          // Make arrowheads bigger and labels clearer
+          renderer.setSetting("minArrowSize", 10);
+          renderer.setSetting("maxArrowSize", 16);
+          renderer.setSetting("renderEdgeLabels", true);
+          renderer.setSetting("edgeLabelSize", 10);
+          renderer.setSetting("edgeLabelFont", "Inter, Arial, sans-serif");
+          renderer.setSetting("edgeLabelWeight", "500");
+
+          //Add edge labels based on relationship type
+          g.forEachEdge((edge, attrs, source, target) => {
+            const label = attrs.label || attrs.type || "";
+            g.setEdgeAttribute(edge, "label", label);
+          });
+          // Refresh and center
+          renderer.refresh();
+          centerCamera(renderer, g);
+
+          // Add hover effects for clarity
+          renderer.on("enterEdge", ({ edge }) => {
+            g.setEdgeAttribute(edge, "color", "#DAA520");
+            renderer.refresh();
+          });
+          renderer.on("leaveEdge", ({ edge }) => {
+            g.setEdgeAttribute(edge, "color", "#DCDCDC");
+            renderer.refresh();
+          });
+
+          document.getElementById("reset").onclick = () => renderer.getCamera().animatedReset({duration:300});
+          document.getElementById("fit").onclick = () => centerCamera(renderer, g);
+        })
+        .catch(err => {
+          console.error(err);
+          container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+        });
+    }
+  );
+})();
+</script>
+</body>
+</html>

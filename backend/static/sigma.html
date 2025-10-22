@@ -7,17 +7,13 @@
 <style>
   :root { --bg:#fff; --gold:#DAA520; --text:#1f2937; }
   html, body { margin:0; padding:0; height:100%; }
-  body{ background:var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-  #toolbar{ padding:10px 14px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;}
-  #title{ font-weight:600; color:var(--gold); letter-spacing:.3px;}
-  #graph{ height:calc(100vh - 52px); width:100vw; }
-  button{ background:var(--gold); color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer;}
+  body { background:var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+  #toolbar { padding:10px 14px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center; }
+  #title { font-weight:600; color:var(--gold); letter-spacing:.3px; }
+  #graph { height:calc(100vh - 52px); width:100vw; }
+  button { background:var(--gold); color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer; }
 </style>
-
-<!-- Graphology & Sigma (UMD) -->
 <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://unpkg.com/graphology-layout-forceatlas2/worker.js"></script>
-<script src="https://unpkg.com/graphology-layout-forceatlas2/umd/graphology-layout-forceatlas2.js"></script>
 <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
 </head>
 <body>
@@ -32,141 +28,237 @@
 
 <script>
 (function () {
-  const container = document.getElementById("graph");
-
-  // Wait until globals from CDNs are present
-  function waitForGlobals(checkFn, onReady, timeoutMs = 6000) {
-    const start = Date.now();
-    (function tick() {
-      if (checkFn()) return onReady();
-      if (Date.now() - start > timeoutMs) {
-        container.innerHTML = "<div style='padding:20px;color:#a00'>Sigma/Graphology scripts failed to load. Check network/CDN access.</div>";
-        return;
-      }
-      setTimeout(tick, 100);
-    })();
-  }
-
   function qp(name){ const u=new URL(window.location.href); return u.searchParams.get(name); }
   const eid = qp("eid") || "E1";
   const api = qp("api") || window.location.origin;
 
-  waitForGlobals(
-    () => !!(window.graphology && (window.sigma || window.Sigma)),
-    () => {
-      // Resolve constructors/exports across UMD variants
-      const FA2 = window.forceAtlas2 || window.graphologyLayoutForceAtlas2;
-      const GraphCtor = (window.graphology && (window.graphology.DirectedGraph || window.graphology.Graph)) || window.graphology.Graph;
-      const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma; // <- robust Sigma ctor
+  const container = document.getElementById("graph");
+  const GraphCtor = (window.graphology && (window.graphology.DirectedGraph || window.graphology.Graph)) || window.graphology.Graph;
+  const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma;
 
-      if (!SigmaCtor) {
-        container.innerHTML = "<div style='padding:20px;color:#a00'>Sigma ctor not found on window.sigma.Sigma or window.Sigma.</div>";
-        return;
+  // Utility
+  const Y = { GP: 2.4, P: 1.2, MID: 0, C: -1.2, GC: -2.4 };
+  const GAP = 1.6;
+
+  function byId(nodes){ const m=new Map(); nodes.forEach(n=>m.set(n.id,n)); return m; }
+  function add(map, a, b){ if(!map.has(a)) map.set(a,new Set()); map.get(a).add(b); }
+
+  function buildAdj(data){
+    const parentsOf = new Map(), childrenOf = new Map(), spousesOf = new Map();
+    (data.edges||[]).forEach(e=>{
+      if(!e || !e.source || !e.target) return;
+      if(e.type==="CHILD_OF"){ add(parentsOf, e.source, e.target); add(childrenOf, e.target, e.source); }
+      else if(e.type==="SPOUSE_OF"){ add(spousesOf, e.source, e.target); add(spousesOf, e.target, e.source); }
+    });
+    return { parentsOf, childrenOf, spousesOf };
+  }
+  function firstDegreeParents(id, parentsOf){ return new Set(parentsOf.get(id) || []); }
+  function siblingsOf(id, parentsOf, childrenOf){
+    const ps = firstDegreeParents(id, parentsOf);
+    const sibs = new Set();
+    ps.forEach(p => (childrenOf.get(p)||new Set()).forEach(c => { if(c!==id) sibs.add(c); }));
+    return sibs;
+  }
+  function spouseParents(spouses, parentsOf){ const out=new Set(); spouses.forEach(s => (parentsOf.get(s)||new Set()).forEach(p=>out.add(p))); return out; }
+  function parentsOfParents(id, parentsOf){
+    const gps=new Set();
+    (parentsOf.get(id)||new Set()).forEach(p => (parentsOf.get(p)||new Set()).forEach(gp=>gps.add(gp)));
+    return gps;
+  }
+  function grandchildrenOf(id, childrenOf){
+    const gs=new Set();
+    (childrenOf.get(id)||new Set()).forEach(k => (childrenOf.get(k)||new Set()).forEach(gc=>gs.add(gc)));
+    return gs;
+  }
+
+  function centerCamera(renderer, g){
+    const xs=[], ys=[];
+    g.forEachNode((n,a)=>{ xs.push(a.x||0); ys.push(a.y||0); });
+    if(!xs.length) return;
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const cx=(minX+maxX)/2, cy=(minY+maxY)/2, extent=Math.max(maxX-minX, maxY-minY)||1;
+    renderer.getCamera().setState({ x:cx, y:cy, ratio: Math.max(1, extent*1.6) });
+  }
+
+  fetch(`${api}/api/v1/persons/${eid}/tree?depth=3&lang=en`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.nodes || !data.nodes.length){ container.innerHTML="<div style='padding:20px;color:#a00'>No nodes.</div>"; return; }
+
+      const idMap = byId(data.nodes);
+      const {parentsOf, childrenOf, spousesOf} = buildAdj(data);
+      const root = data.root || eid;
+
+      // --- 5-tier membership sets ---
+      const spouses = new Set(spousesOf.get(root) || []);
+      const parents = firstDegreeParents(root, parentsOf);
+      const siblings = siblingsOf(root, parentsOf, childrenOf);
+      const children = new Set(childrenOf.get(root) || []);
+      const inlawParents = spouseParents(spouses, parentsOf);
+      const grandparents = parentsOfParents(root, parentsOf);
+      const grandchildren = grandchildrenOf(root, childrenOf);
+
+      // Coords map. We ONLY add nodes we place => no random seeding.
+      const coords = new Map();
+
+      // Tier y = 0: root center, spouses to right, siblings balanced
+      coords.set(root, {x:0, y:Y.MID});
+
+      const spousesArr = Array.from(spouses).sort();
+      spousesArr.forEach((s,i)=> coords.set(s, {x:(i+1)*GAP, y:Y.MID}));
+
+      const sibArr = Array.from(siblings).filter(s=>!spouses.has(s)).sort();
+      const left=[], right=[];
+      sibArr.forEach((id,i)=> (i%2===0?left:right).push(id));
+      left.forEach((id,i)=> coords.set(id, {x:-(i+1)*GAP, y:Y.MID}));
+      right.forEach((id,i)=> coords.set(id, {x:(i+1+spousesArr.length)*GAP, y:Y.MID}));
+
+      // Tier y = -1: parents centered above; in-laws as a cluster node
+      // Try to detect father/mother using node.kin; else place deterministically.
+      const parentsArr = Array.from(parents);
+      const father = parentsArr.find(p => (idMap.get(p)?.kin||"").toLowerCase()==="father") || parentsArr[0];
+      const mother = parentsArr.find(p => (idMap.get(p)?.kin||"").toLowerCase()==="mother") || parentsArr.find(p=>p!==father);
+
+      if (father) coords.set(father, {x:-0.9*GAP, y:Y.P});
+      if (mother) coords.set(mother, {x:+0.9*GAP, y:Y.P});
+
+      const inlaws = Array.from(inlawParents).filter(id => !parents.has(id));
+      const INLAWS_ID = "__cluster_inlaws__";
+      if (inlaws.length){
+        const baseX = spousesArr.length ? (spousesArr.length+1.5)*GAP : 2.5*GAP;
+        coords.set(INLAWS_ID, {x:baseX, y:Y.P});
       }
 
-      function centerCamera(renderer, g) {
-        const xs=[], ys=[];
-        g.forEachNode((n,a)=>{ xs.push(a.x||0); ys.push(a.y||0); });
-        if (!xs.length) return;
-        const minX=Math.min(...xs), maxX=Math.max(...xs);
-        const minY=Math.min(...ys), maxY=Math.max(...ys);
-        const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
-        const extent=Math.max(maxX-minX, maxY-minY) || 1;
-        renderer.getCamera().setState({ x:cx, y:cy, ratio: Math.max(1, extent*1.5) });
-      }
+      // Tier y = -2: grandparents cluster
+      const GPS_ID = "__cluster_grandparents__";
+      if (grandparents.size){ coords.set(GPS_ID, {x:0, y:Y.GP}); }
 
-      fetch(`${api}/api/v1/persons/${eid}/tree?depth=3&lang=en`)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.nodes || !data.nodes.length) {
-            container.innerHTML = "<div style='padding:20px;color:#a00'>No nodes returned for this ID.</div>";
-            return;
-          }
+      // Tier y = +1: children grouped under mother when she is a spouse
+      function xOf(id){ return coords.has(id) ? coords.get(id).x : 0; }
+      const childGroups = new Map(); // key = spouseId or "__root__"
+      const KEY_ROOT = "__root__";
+      Array.from(children).forEach(c=>{
+        const ps = Array.from(parentsOf.get(c) || []);
+        const motherId = ps.find(p => (idMap.get(p)?.sex||"F")==="F") || null;
+        const key = (motherId && spouses.has(motherId)) ? motherId : KEY_ROOT;
+        if(!childGroups.has(key)) childGroups.set(key, []);
+        childGroups.get(key).push(c);
+      });
+      childGroups.forEach((arr, key)=>{
+        arr.sort();
+        const centerX = key===KEY_ROOT ? xOf(root) : (xOf(root)+xOf(key))/2;
+        if(arr.length===1) coords.set(arr[0], {x:centerX, y:Y.C});
+        else{
+          const n=arr.length, start=centerX - ((n-1)/2)*GAP;
+          arr.forEach((cid,i)=> coords.set(cid, {x:start + i*GAP, y:Y.C}));
+        }
+      });
 
-          const g = new GraphCtor({ multi:false, allowSelfLoops:false });
+      // Tier y = +2: grandchildren cluster
+      const GCK_ID = "__cluster_grandchildren__";
+      if (grandchildren.size){ coords.set(GCK_ID, {x:0, y:Y.GC}); }
 
-          function nodeStyle(n){
-            const kin=(n.kin||"").toLowerCase(), cluster=n.cluster||"";
-            let size=10;
-            if (kin.includes("grand") || cluster==="ancestors" || cluster==="descendants") size=14;
-            if (kin==="self") size=16;
-            const color = kin==="self" ? "#DAA520" : (cluster==="inlaws" ? "#c9a227" : "#b8b8b8");
-            return {size,color};
-          }
+      // ---- Build graph strictly from coords (NO random nodes) ----
+      const g = new GraphCtor({ multi:false, allowSelfLoops:false });
 
-          // Seed positions
-          data.nodes.forEach(n => {
-            const s=nodeStyle(n);
-            g.addNode(n.id, {
-              label: n.label || n.id,
-              size: s.size, color: s.color,
-              kin: n.kin || "", cluster: n.cluster || "",
-              x: Math.random(), y: Math.random()
-            });
-          });
-
-          // Directed edges w/ key when available
-          data.edges.forEach((e, idx) => {
-            if (!e || e.source===e.target || !g.hasNode(e.source) || !g.hasNode(e.target)) return;
-            const key = `${e.source}->${e.target}#${idx}`;
-            const attrs = { type:"arrow", color:"#dcdcdc", size:1, label:e.type };
-            if (typeof g.addDirectedEdgeWithKey === "function") g.addDirectedEdgeWithKey(key, e.source, e.target, attrs);
-            else if (typeof g.addEdgeWithKey === "function") g.addEdgeWithKey(key, e.source, e.target, attrs);
-            else if (typeof g.addDirectedEdge === "function") g.addDirectedEdge(e.source, e.target, attrs);
-            else g.addEdge(e.source, e.target, attrs);
-          });
-
-          // Layout
-          if (FA2 && typeof FA2.assign === "function") {
-            FA2.assign(g, { iterations: 250, settings: { gravity: 1, scalingRatio: 10 } });
-          }
-
-          const renderer = new SigmaCtor(g, container, {
-            renderEdgeLabels:true,
-            labelDensity: 0.8,
-            labelGridCellSize: 60,
-            defaultEdgeType: "arrow",
-            defaultEdgeColor: "#DCDCDC",
-            edgeLabelSize: "proportional",
-            edgeLabelFont: "sans-serif" 
-          });
-
-          // Make arrowheads bigger and labels clearer
-          renderer.setSetting("minArrowSize", 10);
-          renderer.setSetting("maxArrowSize", 16);
-          renderer.setSetting("renderEdgeLabels", true);
-          renderer.setSetting("edgeLabelSize", 10);
-          renderer.setSetting("edgeLabelFont", "Inter, Arial, sans-serif");
-          renderer.setSetting("edgeLabelWeight", "500");
-
-          //Add edge labels based on relationship type
-          g.forEachEdge((edge, attrs, source, target) => {
-            const label = attrs.label || attrs.type || "";
-            g.setEdgeAttribute(edge, "label", label);
-          });
-          // Refresh and center
-          renderer.refresh();
-          centerCamera(renderer, g);
-
-          // Add hover effects for clarity
-          renderer.on("enterEdge", ({ edge }) => {
-            g.setEdgeAttribute(edge, "color", "#DAA520");
-            renderer.refresh();
-          });
-          renderer.on("leaveEdge", ({ edge }) => {
-            g.setEdgeAttribute(edge, "color", "#DCDCDC");
-            renderer.refresh();
-          });
-
-          document.getElementById("reset").onclick = () => renderer.getCamera().animatedReset({duration:300});
-          document.getElementById("fit").onclick = () => centerCamera(renderer, g);
-        })
-        .catch(err => {
-          console.error(err);
-          container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+      function addNodeIfPlaced(id, base){
+        if (!coords.has(id)) return false;
+        const {x,y} = coords.get(id);
+        const kin=(base?.kin||"").toLowerCase();
+        const cluster=base?.cluster||"";
+        let size=12, color="#b8b8b8";
+        if (kin==="self") { size=16; color="#DAA520"; }
+        else if (kin==="father" || kin==="mother") { size=14; }
+        else if (cluster==="inlaws") { color="#c9a227"; }
+        g.addNode(id, {
+          label: base?.label || base?.id || id,
+          size, color, kin: base?.kin || "", cluster,
+          x, y
         });
-    }
-  );
+        return true;
+      }
+
+      // Real nodes with coords
+      data.nodes.forEach(n => addNodeIfPlaced(n.id, n));
+
+      // Cluster nodes
+      if (coords.has(INLAWS_ID)){
+        const {x,y} = coords.get(INLAWS_ID);
+        g.addNode(INLAWS_ID, { label:`In-laws (${inlaws.length})`, size:18, color:"#c9a227", x, y, cluster:"inlaws" });
+      }
+      if (coords.has(GPS_ID)){
+        const {x,y} = coords.get(GPS_ID);
+        g.addNode(GPS_ID, { label:`Grandparents (${grandparents.size})`, size:18, color:"#c9a227", x, y, cluster:"ancestors" });
+      }
+      if (coords.has(GCK_ID)){
+        const {x,y} = coords.get(GCK_ID);
+        g.addNode(GCK_ID, { label:`Grandchildren (${grandchildren.size})`, size:18, color:"#c9a227", x, y, cluster:"descendants" });
+      }
+
+      // Edges only between nodes we actually added (prevents random seeding)
+      function addEdge(src, dst, label){
+        if(!g.hasNode(src) || !g.hasNode(dst)) return;
+        const key = `${src}->${dst}#${label||""}`;
+        const attrs = { type:"arrow", color:"#dcdcdc", size:1.2, label:label||"" };
+        if (typeof g.addDirectedEdgeWithKey === "function") g.addDirectedEdgeWithKey(key, src, dst, attrs);
+        else if (typeof g.addEdgeWithKey === "function") g.addEdgeWithKey(key, src, dst, attrs);
+        else if (typeof g.addDirectedEdge === "function") g.addDirectedEdge(src, dst, attrs);
+        else g.addEdge(src, dst, attrs);
+      }
+
+      (data.edges||[]).forEach(e=>{
+        if(!e || e.source===e.target) return;
+        if(g.hasNode(e.source) && g.hasNode(e.target)){
+          addEdge(e.source, e.target, e.type==="CHILD_OF" ? "child of" : e.type==="SPOUSE_OF" ? "spouse" : "");
+        }
+      });
+
+      // Wire clusters for context
+      if (g.hasNode("__cluster_grandparents__")){
+        const ups = Array.from(parents);
+        if (ups.length) ups.forEach(p => addEdge("__cluster_grandparents__", p, "ancestor"));
+        else addEdge("__cluster_grandparents__", root, "ancestor");
+      }
+      if (g.hasNode("__cluster_inlaws__")){
+        const sps = spousesArr.length ? spousesArr : [root];
+        sps.forEach(s => addEdge("__cluster_inlaws__", s, "in-law"));
+      }
+      if (g.hasNode("__cluster_grandchildren__")){
+        const kidArr = Array.from(children);
+        (kidArr.length ? kidArr : [root]).forEach(k => addEdge("__cluster_grandchildren__", k, "descendant"));
+      }
+
+      // Render
+      const renderer = new SigmaCtor(g, container, {
+        renderEdgeLabels: true,
+        defaultEdgeType: "arrow",
+        edgeLabelSize: "proportional",
+        edgeLabelFont: "Inter, Arial, sans-serif"
+      });
+      renderer.setSetting("minArrowSize", 10);
+      renderer.setSetting("maxArrowSize", 16);
+      renderer.setSetting("edgeLabelSize", 11);
+
+      // Hover highlight (guard non-string ids)
+      renderer.on("enterNode", ({node}) => { g.setNodeAttribute(node, "color", "#DAA520"); renderer.refresh(); });
+      renderer.on("leaveNode", ({node}) => {
+        const kin=(g.getNodeAttribute(node,"kin")||"").toLowerCase();
+        const cluster=g.getNodeAttribute(node,"cluster")||"";
+        const isCluster = (typeof node==="string") && node.indexOf("__cluster_")===0;
+        let color = isCluster ? "#c9a227" : (kin==="self" ? "#DAA520" : (cluster==="inlaws" ? "#c9a227" : "#b8b8b8"));
+        g.setNodeAttribute(node, "color", color); renderer.refresh();
+      });
+
+      // Camera
+      function fit(){ const cam=renderer.getCamera(); cam.animatedReset({duration:0}); setTimeout(()=>centerCamera(renderer,g), 0); }
+      fit();
+      document.getElementById("reset").onclick = ()=> renderer.getCamera().animatedReset({duration:300});
+      document.getElementById("fit").onclick = ()=> fit();
+    })
+    .catch(err=>{
+      console.error(err);
+      container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+    });
 })();
 </script>
 </body>

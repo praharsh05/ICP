@@ -1,0 +1,2 @@
+spark_submit_path: /digixt/spark/jobs/
+dags_path: /digixt/airflow/dags/

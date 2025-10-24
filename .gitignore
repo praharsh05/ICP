@@ -137,3 +137,12 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# EGO cache
+ego3_cache_json
+*.json
+kinship
+neo4j_exports
+warehouse
+.DS_Store
+__pycache__

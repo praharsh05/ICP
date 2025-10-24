@@ -11,12 +11,10 @@ div.stButton>button { background-color: var(--gold); color: white; border: 0; bo
 </style>
 ''', unsafe_allow_html=True)
 
-st.title('🌳 Family Tree — PoC (Mock)')
+st.title('Family Tree — PoC')
 
-with st.sidebar:
-    st.header('Settings')
-    api_url = st.text_input('API URL', 'http://localhost:8000')
-    lang = st.selectbox('Language', ['en','ar'], index=0)
+api_url = 'http://localhost:8000'
+lang = ['en','ar']
 
 t1, t2, t3 = st.tabs(['Tree','LCA','Inference'])
 
@@ -31,8 +29,7 @@ with t1:
                 st.success('Loaded')
             except Exception as e:
                 st.error(e)
-        if 'tree' in st.session_state:
-            st.json(st.session_state['tree'])
+
     with c2:
         if 'tree' in st.session_state:
             src = f"{api_url}/static/sigma.html?eid={st.session_state['tree']['root']}&api={api_url}"

@@ -1,0 +1,1 @@
+SELECT entity_person_id, length(ego_json) AS sz, generated_at FROM lake.gold.ego3_cache ORDER BY generated_at DESC LIMIT 20;

@@ -1,372 +1,767 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Family Tree Viewer</title>
-<style>
-  :root { --bg:#fff; --gold:#DAA520; --text:#1f2937; --edge:#dcdcdc; }
-  html, body { margin:0; padding:0; height:100%; }
-  body{ background:var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-  #toolbar{ padding:10px 14px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;}
-  #title{ font-weight:600; color:var(--gold); letter-spacing:.3px;}
-  #graph{ height:calc(100vh - 52px); width:100vw; }
-  button{ background:var(--gold); color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer;}
-</style>
-<script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
-</head>
-<body>
-  <div id="toolbar">
-    <div id="title">Family Tree</div>
-    <div style="margin-left:auto; display:flex; gap:8px">
-      <button id="reset">Reset</button>
-      <button id="fit">Fit</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Family Tree Viewer</title>
+    <style>
+      :root {
+        --bg: #fff;
+        --gold: #daa520;
+        --text: #1f2937;
+        --edge: #dcdcdc;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+          sans-serif;
+      }
+      #toolbar {
+        padding: 10px 14px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      #title {
+        font-weight: 600;
+        color: var(--gold);
+        letter-spacing: 0.3px;
+      }
+      #graph {
+        height: calc(100vh - 52px);
+        width: 100vw;
+      }
+      button {
+        background: var(--gold);
+        color: #fff;
+        border: 0;
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+    </style>
+    <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+    <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
+  </head>
+  <body>
+    <div id="toolbar">
+      <div id="title">Family Tree</div>
+      <div style="margin-left: auto; display: flex; gap: 8px">
+        <button id="reset">Reset</button>
+        <button id="fit">Fit</button>
+      </div>
     </div>
-  </div>
-  <div id="graph"></div>
+    <div id="graph"></div>
 
-<script>
-(function () {
-  // ====== URL params ======
-  function qp(name){ const u=new URL(window.location.href); return u.searchParams.get(name); }
-  const initialEgo = qp("eid") || "E1";
-  const api = qp("api") || window.location.origin;
+    <script>
+      (function () {
+        // ====== URL params ======
+        function qp(name) {
+          const u = new URL(window.location.href);
+          return u.searchParams.get(name);
+        }
+        const initialEgo = qp("eid") || "E1";
+        const api = qp("api") || window.location.origin;
 
-  // ====== Sigma / Graphology ======
-  const container = document.getElementById("graph");
-  const GraphCtor = (window.graphology && (window.graphology.DirectedGraph || window.graphology.Graph)) || window.graphology.Graph;
-  const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma;
+        // ====== Sigma / Graphology ======
+        const container = document.getElementById("graph");
+        const GraphCtor =
+          (window.graphology &&
+            (window.graphology.DirectedGraph || window.graphology.Graph)) ||
+          window.graphology.Graph;
+        const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma;
 
-  // ====== Layout constants (screen Y is top positive here; flip if your canvas differs) ======
-  const FLIP_Y = false; // set true if your env flips vertically
-  function Yv(v){ return FLIP_Y ? -v : v; }
-  const Y = { GP: Yv(2.4), P: Yv(1.2), MID: 0, C: Yv(-1.2), GC: Yv(-2.4) };
-  const GAP = 1.6;
+        // ====== Layout constants (screen Y is top positive here; flip if your canvas differs) ======
+        const FLIP_Y = false; // set true if your env flips vertically
+        function Yv(v) {
+          return FLIP_Y ? -v : v;
+        }
+        const Y = {
+          GP: Yv(2.4),
+          P: Yv(1.2),
+          MID: 0,
+          C: Yv(-1.2),
+          GC: Yv(-2.4),
+        };
+        const GAP = 1.6;
 
-  // ====== Helpers ======
-  function add(map, a, b){ if(!map.has(a)) map.set(a,new Set()); map.get(a).add(b); }
-  function byId(nodes){ const m=new Map(); nodes.forEach(n=>m.set(n.id,n)); return m; }
+        const STATIC_BASE = "/static";
+        const ICON_MALE = `${STATIC_BASE}/img/male_icon.jpg`;
+        const ICON_FEMALE = `${STATIC_BASE}/img/female_icon.jpg`;
+        const ICON_CLUSTER = `${STATIC_BASE}/img/male_icon.jpg`;
 
-  function buildAdj(data){
-    const parentsOf = new Map(), childrenOf = new Map(), spousesOf = new Map();
-    (data.edges||[]).forEach(e=>{
-      if(!e || !e.source || !e.target) return;
-      if(e.type==="CHILD_OF"){ add(parentsOf, e.source, e.target); add(childrenOf, e.target, e.source); }
-      else if(e.type==="SPOUSE_OF"){ add(spousesOf, e.source, e.target); add(spousesOf, e.target, e.source); }
-    });
-    return { parentsOf, childrenOf, spousesOf };
-  }
-  function parents1(id, parentsOf){ return new Set(parentsOf.get(id) || []); }
-  function siblingsOf(id, parentsOf, childrenOf){
-    const ps = parents1(id, parentsOf);
-    const sibs = new Set();
-    ps.forEach(p => (childrenOf.get(p)||new Set()).forEach(c => { if(c!==id) sibs.add(c); }));
-    return sibs;
-  }
-  function spouseParents(spouses, parentsOf){ const out=new Set(); spouses.forEach(s => (parentsOf.get(s)||new Set()).forEach(p=>out.add(p))); return out; }
-  function gpOf(id, parentsOf){ const res=new Set(); (parentsOf.get(id)||new Set()).forEach(p => (parentsOf.get(p)||new Set()).forEach(g=>res.add(g))); return res; }
-  function kidsOf(id, childrenOf){ return new Set(childrenOf.get(id) || []); }
-  function grandKidsOf(id, childrenOf){ const gs=new Set(); (childrenOf.get(id)||new Set()).forEach(k => (childrenOf.get(k)||new Set()).forEach(gc=>gs.add(gc))); return gs; }
+        const EDGE_COLOR = "#374151";
 
-  function boundsFromCoords(coords, ids){
-    const xs=[], ys=[];
-    ids.forEach(id => { const c=coords.get(id); if(c){ xs.push(c.x); ys.push(c.y); } });
-    if(!xs.length) return { cx:0, cy:0, extent:1 };
-    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
-    return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, extent:Math.max(maxX-minX, maxY-minY) || 1 };
-  }
+        // ====== Helpers ======
+        function add(map, a, b) {
+          if (!map.has(a)) map.set(a, new Set());
+          map.get(a).add(b);
+        }
+        function byId(nodes) {
+          const m = new Map();
+          nodes.forEach((n) => m.set(n.id, n));
+          return m;
+        }
 
-  // ====== Animated camera moves ======
-  function animateCamera(renderer, steps){
-    // steps = [{x,y,ratio,duration}]
-    const cam = renderer.getCamera();
-    let i=0;
-    const go = () => {
-      if (i >= steps.length) return;
-      const s = steps[i++];
-      cam.animate({ x:s.x, y:s.y, ratio:s.ratio }, { duration: s.duration, easing: "quadraticInOut" }, go);
-    };
-    go();
-  }
+        function buildAdj(data) {
+          const parentsOf = new Map(),
+            childrenOf = new Map(),
+            spousesOf = new Map();
+          (data.edges || []).forEach((e) => {
+            if (!e || !e.source || !e.target) return;
+            if (e.type === "CHILD_OF") {
+              add(parentsOf, e.source, e.target);
+              add(childrenOf, e.target, e.source);
+            } else if (e.type === "SPOUSE_OF") {
+              add(spousesOf, e.source, e.target);
+              add(spousesOf, e.target, e.source);
+            }
+          });
+          return { parentsOf, childrenOf, spousesOf };
+        }
+        function parents1(id, parentsOf) {
+          return new Set(parentsOf.get(id) || []);
+        }
+        function siblingsOf(id, parentsOf, childrenOf) {
+          const ps = parents1(id, parentsOf);
+          const sibs = new Set();
+          ps.forEach((p) =>
+            (childrenOf.get(p) || new Set()).forEach((c) => {
+              if (c !== id) sibs.add(c);
+            })
+          );
+          return sibs;
+        }
+        function spouseParents(spouses, parentsOf) {
+          const out = new Set();
+          spouses.forEach((s) =>
+            (parentsOf.get(s) || new Set()).forEach((p) => out.add(p))
+          );
+          return out;
+        }
+        function gpOf(id, parentsOf) {
+          const res = new Set();
+          (parentsOf.get(id) || new Set()).forEach((p) =>
+            (parentsOf.get(p) || new Set()).forEach((g) => res.add(g))
+          );
+          return res;
+        }
+        function kidsOf(id, childrenOf) {
+          return new Set(childrenOf.get(id) || []);
+        }
+        function grandKidsOf(id, childrenOf) {
+          const gs = new Set();
+          (childrenOf.get(id) || new Set()).forEach((k) =>
+            (childrenOf.get(k) || new Set()).forEach((gc) => gs.add(gc))
+          );
+          return gs;
+        }
 
-  // ====== Animated node layout updates ======
-  function animateNodes(g, nextCoords, duration=350){
-    // Interpolate existing nodes to nextCoords positions
-    const start = performance.now();
-    const startPos = new Map();
-    g.forEachNode((id, attr) => {
-      const from = { x: attr.x, y: attr.y };
-      const to = nextCoords.get(id) || from;
-      startPos.set(id, { from, to });
-    });
-    function step(now){
-      const t = Math.min(1, (now - start)/duration);
-      const ease = t<0.5 ? 2*t*t : -1+(4-2*t)*t; // easeInOutQuad
-      g.forEachNode((id, attr) => {
-        const s = startPos.get(id); if(!s) return;
-        const x = s.from.x + (s.to.x - s.from.x)*ease;
-        const y = s.from.y + (s.to.y - s.from.y)*ease;
-        g.setNodeAttribute(id, "x", x);
-        g.setNodeAttribute(id, "y", y);
-      });
-      if (t < 1) requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
+        function boundsFromCoords(coords, ids) {
+          const xs = [],
+            ys = [];
+          ids.forEach((id) => {
+            const c = coords.get(id);
+            if (c) {
+              xs.push(c.x);
+              ys.push(c.y);
+            }
+          });
+          if (!xs.length) return { cx: 0, cy: 0, extent: 1 };
+          const minX = Math.min(...xs),
+            maxX = Math.max(...xs),
+            minY = Math.min(...ys),
+            maxY = Math.max(...ys);
+          return {
+            cx: (minX + maxX) / 2,
+            cy: (minY + maxY) / 2,
+            extent: Math.max(maxX - minX, maxY - minY) || 1,
+          };
+        }
 
-  // ====== Clustering policy (expand/contract) ======
-  // We always show 3 close generations around ego:
-  //   ancestors up to grandparents, ego row (spouse/siblings), children, grandchildren.
-  // Everything beyond those tiers is clustered (top=grandparents cluster, parents' in-laws as in-laws cluster, bottom=grandchildren cluster).
-  const ID_INLAWS = "__cluster_inlaws__";
-  const ID_GPS    = "__cluster_grandparents__";
-  const ID_GCK    = "__cluster_grandchildren__";
+        // Creates/returns a single overlay layer inside the graph container
+        // Create a single overlay layer to hold icons+labels
+        function ensureOverlayLayer(container) {
+          let layer = container.querySelector(".overlay-layer");
+          if (!layer) {
+            layer = document.createElement("div");
+            layer.className = "overlay-layer";
+            Object.assign(layer.style, {
+              position: "absolute",
+              left: "0",
+              top: "0",
+              width: "100%",
+              height: "100%",
+              pointerEvents: "none", // don't block graph interactions
+              fontFamily:
+                "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+              zIndex: "10",
+            });
+            container.style.position = "relative"; // important for absolute positioning
+            container.appendChild(layer);
+          }
+          return layer;
+        }
 
-  // ====== Build a 5-tier layout around an ego ======
-  function layoutFiveTier(data, adj, root){
-    const { parentsOf, childrenOf, spousesOf } = adj;
-    const idMap = new Map(data.nodes.map(n=>[n.id,n]));
+        // Draw/reuse one icon+label DOM element per visible node
+        function refreshOverlay(renderer, graph, idMap) {
+          const layer = ensureOverlayLayer(container);
 
-    const spouses = new Set(spousesOf.get(root) || []);
-    const parents = parents1(root, parentsOf);
-    const siblings = siblingsOf(root, parentsOf, childrenOf);
-    const children = kidsOf(root, childrenOf);
-    const inlawParents = spouseParents(spouses, parentsOf);
-    const grandparents = gpOf(root, parentsOf);
-    const grandkids = grandKidsOf(root, childrenOf);
+          // cache existing elements for reuse
+          const existing = new Map();
+          Array.from(layer.children).forEach((el) =>
+            existing.set(el.dataset.id, el)
+          );
+          const used = new Set();
 
-    // Coordinates we will set for VISIBLE nodes/clusters
-    const coords = new Map();
+          const cam = renderer.getCamera();
+          const { x: cx, y: cy, ratio } = cam.getState();
+          const cw = renderer.getContainer().clientWidth || 800;
+          const ch = renderer.getContainer().clientHeight || 600;
 
-    // Row = 0: root, spouses, siblings
-    coords.set(root, {x:0, y:Y.MID});
-    const spousesArr = Array.from(spouses).sort();
-    spousesArr.forEach((s,i)=> coords.set(s, {x:(i+1)*GAP, y:Y.MID}));
-    const sibArr = Array.from(siblings).filter(s=>!spouses.has(s)).sort();
-    const left=[], right=[];
-    sibArr.forEach((id,i)=> (i%2===0?left:right).push(id));
-    left.forEach((id,i)=> coords.set(id, {x:-(i+1)*GAP, y:Y.MID}));
-    right.forEach((id,i)=> coords.set(id, {x:(i+1+spousesArr.length)*GAP, y:Y.MID}));
+          graph.forEachNode((id, attrs) => {
+            // Sigma display data (may be undefined on first frames)
+            const dd = renderer.getNodeDisplayData(id);
 
-    // Row = +1: parents (father, mother) + in-laws cluster
-    const pArr = Array.from(parents);
-    const father = pArr.find(p => (idMap.get(p)?.kin||"").toLowerCase()==="father") || pArr[0];
-    const mother = pArr.find(p => (idMap.get(p)?.kin||"").toLowerCase()==="mother") || pArr.find(p=>p!==father);
-    if (father) coords.set(father, {x:-0.9*GAP, y:Y.P});
-    if (mother) coords.set(mother, {x:+0.9*GAP, y:Y.P});
-    const inlaws = Array.from(inlawParents).filter(id => !parents.has(id));
-    if (inlaws.length){
-      const baseX = spousesArr.length ? (spousesArr.length+1.5)*GAP : 2.5*GAP;
-      coords.set(ID_INLAWS, {x:baseX, y:Y.P});
-    }
+            used.add(id);
 
-    // Row = +2: grandparents cluster
-    if (grandparents.size){
-      coords.set(ID_GPS, {x:0, y:Y.GP});
-    }
+            let el = existing.get(id);
+            if (!el) {
+              el = document.createElement("div");
+              el.dataset.id = id;
+              el.style.position = "absolute";
+              el.style.transform = "translate(-50%, -50%)"; // center on node
+              el.style.textAlign = "center";
+              el.style.pointerEvents = "none";
 
-    // Row = −1: children (grouped under mother if she is a spouse)
-    const KEY_ROOT = "__root__";
-    function xOf(id){ return coords.has(id) ? coords.get(id).x : 0; }
-    const childGroups = new Map();
-    Array.from(children).forEach(c=>{
-      const ps = Array.from(parentsOf.get(c) || []);
-      const motherId = ps.find(p => (idMap.get(p)?.sex||"F")==="F") || null;
-      const key = (motherId && spouses.has(motherId)) ? motherId : KEY_ROOT;
-      if(!childGroups.has(key)) childGroups.set(key, []);
-      childGroups.get(key).push(c);
-    });
-    childGroups.forEach((arr, key)=>{
-      arr.sort();
-      const centerX = key===KEY_ROOT ? xOf(root) : (xOf(root)+xOf(key))/2;
-      if(arr.length===1) coords.set(arr[0], {x:centerX, y:Y.C});
-      else{
-        const n=arr.length, start=centerX - ((n-1)/2)*GAP;
-        arr.forEach((cid,i)=> coords.set(cid, {x:start + i*GAP, y:Y.C}));
-      }
-    });
+              // ICON
+              const img = document.createElement("img");
+              img.className = "node-icon";
+              img.style.display = "block";
+              img.style.pointerEvents = "none";
+              img.style.width = "32px";
+              img.style.height = "32px";
+              img.style.borderRadius = "50%";
+              img.style.boxShadow = "0 0 0 3px rgba(218,165,32,0.65)"; // gold ring
+              el.appendChild(img);
 
-    // Row = −2: grandchildren cluster
-    if (grandkids.size){
-      coords.set(ID_GCK, {x:0, y:Y.GC});
-    }
+              // LABEL (BELOW the icon)
+              const lab = document.createElement("div");
+              lab.className = "node-label";
+              lab.style.marginTop = "6px";
+              lab.style.fontSize = "12px";
+              lab.style.lineHeight = "1.1";
+              lab.style.color = "#1f2937";
+              lab.style.fontWeight = "500";
+              lab.style.whiteSpace = "nowrap";
+              el.appendChild(lab);
 
-    // Decide which nodes to show (not clustered) = explicit set:
-    // parents (father/mother), root+spouses+sibs, children, and (optionally) show spouse parents expanded if they are within close gen? We keep them clustered.
-    const explicit = new Set([root, ...spousesArr, ...sibArr, father, mother, ...Array.from(children)]);
-    // Add clusters as pseudo nodes if any
-    if (coords.has(ID_INLAWS)) explicit.add(ID_INLAWS);
-    if (coords.has(ID_GPS)) explicit.add(ID_GPS);
-    if (coords.has(ID_GCK)) explicit.add(ID_GCK);
+              layer.appendChild(el);
+            }
 
-    // Edges to draw: only among explicit nodes (and cluster edges for context)
-    const edges = [];
-    (data.edges||[]).forEach(e=>{
-      if(!e || e.source===e.target) return;
-      if (explicit.has(e.source) && explicit.has(e.target)) edges.push({ source:e.source, target:e.target, type:e.type });
-    });
-    // Cluster edges:
-    if (coords.has(ID_GPS)){
-      if (father) edges.push({ source:ID_GPS, target:father, type:"ancestor" });
-      if (mother) edges.push({ source:ID_GPS, target:mother, type:"ancestor" });
-      if (!father && !mother) edges.push({ source:ID_GPS, target:root, type:"ancestor" });
-    }
-    if (coords.has(ID_INLAWS)){
-      if (spousesArr.length) spousesArr.forEach(s => edges.push({ source:ID_INLAWS, target:s, type:"in-law" }));
-      else edges.push({ source:ID_INLAWS, target:root, type:"in-law" });
-    }
-    if (coords.has(ID_GCK)){
-      const kids = Array.from(children);
-      if (kids.length) kids.forEach(k => edges.push({ source:ID_GCK, target:k, type:"descendant" }));
-      else edges.push({ source:ID_GCK, target:root, type:"descendant" });
-    }
+            // pick icon file
+            const nodeData = idMap.get(id) || {};
+            const rawSex =
+              nodeData.sex ??
+              nodeData.Sex ??
+              nodeData.gender ??
+              attrs.sex ??
+              "";
+            const sex = String(rawSex).trim().toUpperCase(); // "M" | "F" | ""
+            const img = el.querySelector(".node-icon");
 
-    return { coords, explicitIds: explicit, edges };
-  }
+            if (id === ID_INLAWS || id === ID_GPS || id === ID_GCK) {
+              img.src = ICON_CLUSTER; // your cluster icon (or reuse male)
+              img.style.filter = "grayscale(100%)";
+              img.style.boxShadow = "0 0 0 3px rgba(201,162,39,0.55)";
+            } else {
+              img.src = sex === "F" ? ICON_FEMALE : ICON_MALE;
+              img.style.filter = "";
+              img.style.boxShadow = "0 0 0 3px rgba(218,165,32,0.65)";
+            }
 
-  // ====== Graph state & updating ======
-  let fullData = null;
-  let adj = null;
-  let renderer = null;
-  const g = new GraphCtor({ multi:false, allowSelfLoops:false });
+            // --- Robust screen coords & pixel size ---
+            let sx, sy, px;
 
-  function addOrUpdateNode(id, baseAttr, x, y){
-    const kin=(baseAttr?.kin||"").toLowerCase();
-    const cluster=baseAttr?.cluster||"";
-    let size=12, color="#b8b8b8";
-    if (id===ID_INLAWS || id===ID_GPS || id===ID_GCK) { size=18; color="#c9a227"; }
-    else if (kin==="self") { size=16; color="#DAA520"; }
-    else if (kin==="father" || kin==="mother") { size=14; }
-    if (g.hasNode(id)) {
-      g.setNodeAttribute(id, "x", x);
-      g.setNodeAttribute(id, "y", y);
-      g.setNodeAttribute(id, "label", baseAttr?.label || baseAttr?.id || id);
-    } else {
-      g.addNode(id, {
-        label: baseAttr?.label || baseAttr?.id || id,
-        size, color, kin: baseAttr?.kin || "", cluster, x, y
-      });
-    }
-  }
+            if (
+              dd &&
+              Number.isFinite(dd.x) &&
+              Number.isFinite(dd.y) &&
+              Number.isFinite(dd.size)
+            ) {
+              // Use Sigma-provided coords/sizes when available
+              sx = dd.x;
+              sy = dd.y;
+              px = dd.size * 2.1;
+            } else {
+              // Fallback: project world coords to viewport via camera state
+              const wx = attrs.x ?? graph.getNodeAttribute(id, "x") ?? 0;
+              const wy = attrs.y ?? graph.getNodeAttribute(id, "y") ?? 0;
+              const z = ratio || 1;
 
-  function syncGraphToLayout(layout){
-    const { coords, explicitIds, edges } = layout;
+              sx = (wx - cx) / z + cw / 2;
+              sy = (wy - cy) / z + ch / 2;
 
-    // 1) Remove nodes not in explicit set
-    const toRemove = [];
-    g.forEachNode((id)=>{ if(!explicitIds.has(id)) toRemove.push(id); });
-    toRemove.forEach(id => g.dropNode(id));
+              const nodeSize =
+                attrs.size ?? graph.getNodeAttribute(id, "size") ?? 16;
+              px = (nodeSize / z) * 2.1;
+            }
 
-    // 2) Add or update nodes
-    explicitIds.forEach(id=>{
-      const base = (id===ID_INLAWS || id===ID_GPS || id===ID_GCK) ? { label: (id===ID_INLAWS?"In-laws":"") || (id===ID_GPS?"Grandparents":"") || (id===ID_GCK?"Grandchildren":""), kin:"", cluster:(id===ID_INLAWS?"inlaws":(id===ID_GPS?"ancestors":"descendants")) } : (fullData.idMap.get(id) || { id });
-      const c = coords.get(id) || {x:0,y:0};
-      addOrUpdateNode(id, base, c.x, c.y);
-    });
+            // Clamp size to keep readable
+            px = Math.max(28, Math.min(46, px));
+            img.style.width = px + "px";
+            img.style.height = px + "px";
 
-    // 3) Rebuild edges: remove all then add selected (fewer diffs, simpler)
-    const allEdges = [];
-    g.forEachEdge((e)=> allEdges.push(e));
-    allEdges.forEach(e => g.dropEdge(e));
-    edges.forEach((e, idx)=>{
-      const key = `${e.source}->${e.target}#${idx}`;
-      const attrs = { type:"arrow", color:"#dcdcdc", size:1.2, label: (e.type==="CHILD_OF"?"child of": e.type==="SPOUSE_OF"?"spouse": e.type) };
-      if (typeof g.addDirectedEdgeWithKey === "function") g.addDirectedEdgeWithKey(key, e.source, e.target, attrs);
-      else if (typeof g.addEdgeWithKey === "function") g.addEdgeWithKey(key, e.source, e.target, attrs);
-      else if (typeof g.addDirectedEdge === "function") g.addDirectedEdge(e.source, e.target, attrs);
-      else g.addEdge(e.source, e.target, attrs);
-    });
-  }
+            // place element (centered on the node; label is below via marginTop)
+            el.style.left = sx + "px";
+            el.style.top = sy + "px";
 
-  function centerCameraOnLayout(layout){
-    const ids = Array.from(layout.explicitIds);
-    const b = boundsFromCoords(layout.coords, ids);
-    if (!renderer) return;
-    renderer.getCamera().setState({ x:b.cx, y:b.cy, ratio: Math.max(1, b.extent*1.6) });
-  }
+            // label
+            const labelDiv = el.querySelector(".node-label");
+            const isSelf =
+              attrs.kin && String(attrs.kin).toLowerCase() === "self";
+            labelDiv.textContent = attrs.label || nodeData.label || id;
+            labelDiv.style.fontWeight = isSelf ? "700" : "500";
+          });
 
-  function animateCameraToLayout(layout){
-    const ids = Array.from(layout.explicitIds);
-    const b = boundsFromCoords(layout.coords, ids);
-    const cam = renderer.getCamera();
-    const cur = cam.getState();
-    // Two-stage: zoom out a bit around current center, then pan+zoom to new center
-    const steps = [
-      { x: cur.x, y: cur.y, ratio: cur.ratio * 1.5, duration: 180 },
-      { x: b.cx,  y: b.cy,  ratio: Math.max(1, b.extent*1.6), duration: 320 }
-    ];
-    animateCamera(renderer, steps);
-  }
+          // clean up unused
+          existing.forEach((el, id) => {
+            if (!used.has(id)) el.remove();
+          });
+        }
 
-  function reflowToEgo(egoId, animate=true){
-    const layout = layoutFiveTier(fullData, adj, egoId);
-    if (!renderer){
-      // first time
-      syncGraphToLayout(layout);
-      renderer = new SigmaCtor(g, container, {
-        renderEdgeLabels: true,
-        defaultEdgeType: "arrow",
-        edgeLabelSize: "proportional",
-        edgeLabelFont: "Inter, Arial, sans-serif"
-      });
-      renderer.setSetting("minArrowSize", 10);
-      renderer.setSetting("maxArrowSize", 16);
-      renderer.setSetting("edgeLabelSize", 11);
+        // ====== Animated camera moves ======
+        function animateCamera(renderer, steps) {
+          // steps = [{x,y,ratio,duration}]
+          const cam = renderer.getCamera();
+          let i = 0;
+          const go = () => {
+            if (i >= steps.length) return;
+            const s = steps[i++];
+            cam.animate(
+              { x: s.x, y: s.y, ratio: s.ratio },
+              { duration: s.duration, easing: "quadraticInOut" },
+              go
+            );
+          };
+          go();
+        }
 
-      // Hover highlight
-      renderer.on("enterNode", ({node}) => { g.setNodeAttribute(node, "color", "#DAA520"); renderer.refresh(); });
-      renderer.on("leaveNode", ({node}) => {
-        const kin=(g.getNodeAttribute(node,"kin")||"").toLowerCase();
-        const cluster=g.getNodeAttribute(node,"cluster")||"";
-        const isCluster = (typeof node==="string") && node.indexOf("__cluster_")===0;
-        let color = isCluster ? "#c9a227" : (kin==="self" ? "#DAA520" : (cluster==="inlaws" ? "#c9a227" : "#b8b8b8"));
-        g.setNodeAttribute(node, "color", color); renderer.refresh();
-      });
+        // ====== Animated node layout updates ======
+        function animateNodes(g, nextCoords, duration = 350) {
+          // Interpolate existing nodes to nextCoords positions
+          const start = performance.now();
+          const startPos = new Map();
+          g.forEachNode((id, attr) => {
+            const from = { x: attr.x, y: attr.y };
+            const to = nextCoords.get(id) || from;
+            startPos.set(id, { from, to });
+          });
+          function step(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+            g.forEachNode((id, attr) => {
+              const s = startPos.get(id);
+              if (!s) return;
+              const x = s.from.x + (s.to.x - s.from.x) * ease;
+              const y = s.from.y + (s.to.y - s.from.y) * ease;
+              g.setNodeAttribute(id, "x", x);
+              g.setNodeAttribute(id, "y", y);
+            });
+            if (t < 1) requestAnimationFrame(step);
+          }
+          requestAnimationFrame(step);
+        }
 
-      // Click to recenter on node
-      renderer.on("clickNode", ({ node }) => {
-        reflowToEgo(node, true);
-      });
+        // ====== Clustering policy (expand/contract) ======
+        // We always show 3 close generations around ego:
+        //   ancestors up to grandparents, ego row (spouse/siblings), children, grandchildren.
+        // Everything beyond those tiers is clustered (top=grandparents cluster, parents' in-laws as in-laws cluster, bottom=grandchildren cluster).
+        const ID_INLAWS = "__cluster_inlaws__";
+        const ID_GPS = "__cluster_grandparents__";
+        const ID_GCK = "__cluster_grandchildren__";
 
-      // Toolbar
-      document.getElementById("reset").onclick = ()=> renderer.getCamera().animatedReset({duration:300});
-      document.getElementById("fit").onclick = ()=> centerCameraOnLayout(layout);
+        // ====== Build a 5-tier layout around an ego ======
+        function layoutFiveTier(data, adj, root) {
+          const { parentsOf, childrenOf, spousesOf } = adj;
+          const idMap = new Map(data.nodes.map((n) => [n.id, n]));
 
-      centerCameraOnLayout(layout);
-      return;
-    }
+          const spouses = new Set(spousesOf.get(root) || []);
+          const parents = parents1(root, parentsOf);
+          const siblings = siblingsOf(root, parentsOf, childrenOf);
+          const children = kidsOf(root, childrenOf);
+          const inlawParents = spouseParents(spouses, parentsOf);
+          const grandparents = gpOf(root, parentsOf);
+          const grandkids = grandKidsOf(root, childrenOf);
 
-    // Subsequent updates: animate node positions + camera
-    const prevCoords = new Map();
-    g.forEachNode((id, attr) => prevCoords.set(id, {x:attr.x, y:attr.y}));
-    syncGraphToLayout(layout);
-    animateNodes(g, layout.coords, 350);
-    if (animate) animateCameraToLayout(layout);
-    else centerCameraOnLayout(layout);
-  }
+          // Coordinates we will set for VISIBLE nodes/clusters
+          const coords = new Map();
 
-  // ====== Load once, then interactive forever ======
-  fetch(`${api}/api/v1/persons/${initialEgo}/tree?depth=3&lang=en`)
-    .then(r=>r.json())
-    .then(data=>{
-      if(!data.nodes || !data.nodes.length){
-        container.innerHTML = "<div style='padding:20px;color:#a00'>No nodes.</div>";
-        return;
-      }
-      fullData = {
-        nodes: data.nodes,
-        edges: data.edges || [],
-        idMap: byId(data.nodes),
-      };
-      adj = buildAdj(fullData);
-      reflowToEgo(data.root || initialEgo, false);
-    })
-    .catch(err=>{
-      console.error(err);
-      container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
-    });
-})();
-</script>
-</body>
+          // Row = 0: root, spouses, siblings
+          coords.set(root, { x: 0, y: Y.MID });
+          const spousesArr = Array.from(spouses).sort();
+          spousesArr.forEach((s, i) =>
+            coords.set(s, { x: (i + 1) * GAP, y: Y.MID })
+          );
+          const sibArr = Array.from(siblings)
+            .filter((s) => !spouses.has(s))
+            .sort();
+          const left = [],
+            right = [];
+          sibArr.forEach((id, i) => (i % 2 === 0 ? left : right).push(id));
+          left.forEach((id, i) =>
+            coords.set(id, { x: -(i + 1) * GAP, y: Y.MID })
+          );
+          right.forEach((id, i) =>
+            coords.set(id, { x: (i + 1 + spousesArr.length) * GAP, y: Y.MID })
+          );
+
+          // Row = +1: parents (father, mother) + in-laws cluster
+          const pArr = Array.from(parents);
+          const father =
+            pArr.find(
+              (p) => (idMap.get(p)?.kin || "").toLowerCase() === "father"
+            ) || pArr[0];
+          const mother =
+            pArr.find(
+              (p) => (idMap.get(p)?.kin || "").toLowerCase() === "mother"
+            ) || pArr.find((p) => p !== father);
+          if (father) coords.set(father, { x: -0.9 * GAP, y: Y.P });
+          if (mother) coords.set(mother, { x: +0.9 * GAP, y: Y.P });
+          const inlaws = Array.from(inlawParents).filter(
+            (id) => !parents.has(id)
+          );
+          if (inlaws.length) {
+            const baseX = spousesArr.length
+              ? (spousesArr.length + 1.5) * GAP
+              : 2.5 * GAP;
+            coords.set(ID_INLAWS, { x: baseX, y: Y.P });
+          }
+
+          // Row = +2: grandparents cluster
+          if (grandparents.size) {
+            coords.set(ID_GPS, { x: 0, y: Y.GP });
+          }
+
+          // Row = −1: children (grouped under mother if she is a spouse)
+          const KEY_ROOT = "__root__";
+          function xOf(id) {
+            return coords.has(id) ? coords.get(id).x : 0;
+          }
+          const childGroups = new Map();
+          Array.from(children).forEach((c) => {
+            const ps = Array.from(parentsOf.get(c) || []);
+            const motherId =
+              ps.find((p) => (idMap.get(p)?.sex || "F") === "F") || null;
+            const key = motherId && spouses.has(motherId) ? motherId : KEY_ROOT;
+            if (!childGroups.has(key)) childGroups.set(key, []);
+            childGroups.get(key).push(c);
+          });
+          childGroups.forEach((arr, key) => {
+            arr.sort();
+            const centerX =
+              key === KEY_ROOT ? xOf(root) : (xOf(root) + xOf(key)) / 2;
+            if (arr.length === 1) coords.set(arr[0], { x: centerX, y: Y.C });
+            else {
+              const n = arr.length,
+                start = centerX - ((n - 1) / 2) * GAP;
+              arr.forEach((cid, i) =>
+                coords.set(cid, { x: start + i * GAP, y: Y.C })
+              );
+            }
+          });
+
+          // Row = −2: grandchildren cluster
+          if (grandkids.size) {
+            coords.set(ID_GCK, { x: 0, y: Y.GC });
+          }
+
+          // Decide which nodes to show (not clustered) = explicit set:
+          // parents (father/mother), root+spouses+sibs, children, and (optionally) show spouse parents expanded if they are within close gen? We keep them clustered.
+          const explicit = new Set([
+            root,
+            ...spousesArr,
+            ...sibArr,
+            father,
+            mother,
+            ...Array.from(children),
+          ]);
+          // Add clusters as pseudo nodes if any
+          if (coords.has(ID_INLAWS)) explicit.add(ID_INLAWS);
+          if (coords.has(ID_GPS)) explicit.add(ID_GPS);
+          if (coords.has(ID_GCK)) explicit.add(ID_GCK);
+
+          // Edges to draw: only among explicit nodes (and cluster edges for context)
+          const edges = [];
+          (data.edges || []).forEach((e) => {
+            if (!e || e.source === e.target) return;
+            if (explicit.has(e.source) && explicit.has(e.target))
+              edges.push({ source: e.source, target: e.target, type: e.type });
+          });
+          // Cluster edges:
+          if (coords.has(ID_GPS)) {
+            if (father)
+              edges.push({ source: ID_GPS, target: father, type: "ancestor" });
+            if (mother)
+              edges.push({ source: ID_GPS, target: mother, type: "ancestor" });
+            if (!father && !mother)
+              edges.push({ source: ID_GPS, target: root, type: "ancestor" });
+          }
+          if (coords.has(ID_INLAWS)) {
+            if (spousesArr.length)
+              spousesArr.forEach((s) =>
+                edges.push({ source: ID_INLAWS, target: s, type: "in-law" })
+              );
+            else
+              edges.push({ source: ID_INLAWS, target: root, type: "in-law" });
+          }
+          if (coords.has(ID_GCK)) {
+            const kids = Array.from(children);
+            if (kids.length)
+              kids.forEach((k) =>
+                edges.push({ source: ID_GCK, target: k, type: "descendant" })
+              );
+            else
+              edges.push({ source: ID_GCK, target: root, type: "descendant" });
+          }
+
+          return { coords, explicitIds: explicit, edges };
+        }
+
+        // ====== Graph state & updating ======
+        let fullData = null;
+        let adj = null;
+        let renderer = null;
+        const g = new GraphCtor({ multi: false, allowSelfLoops: false });
+
+        function addOrUpdateNode(id, baseAttr, x, y) {
+          const kin = (baseAttr?.kin || "").toLowerCase();
+          const cluster = baseAttr?.cluster || "";
+          let size = 18,
+            color = "#ffffff";
+          if (id === ID_INLAWS || id === ID_GPS || id === ID_GCK) {
+            size = 26;
+            color = "#c9a227";
+          } else if (kin === "self") {
+            size = 24;
+            color = "#DAA520";
+          } else if (kin === "father" || kin === "mother") {
+            size = 22;
+          }
+
+          const label = baseAttr?.label || baseAttr?.id || id;
+
+          if (g.hasNode(id)) {
+            g.setNodeAttribute(id, "x", x);
+            g.setNodeAttribute(id, "y", y);
+            g.setNodeAttribute(id, "label", label);
+            g.setNodeAttribute(id, "size", size);
+            g.setNodeAttribute(id, "color", color);
+            g.setNodeAttribute(id, "borderColor", "#DAA520");
+          } else {
+            g.addNode(id, {
+              label,
+              size,
+              color,
+              kin: baseAttr?.kin || "",
+              cluster,
+              x,
+              y,
+            });
+          }
+        }
+
+        function syncGraphToLayout(layout) {
+          const { coords, explicitIds, edges } = layout;
+
+          // 1) Remove nodes not in explicit set
+          const toRemove = [];
+          g.forEachNode((id) => {
+            if (!explicitIds.has(id)) toRemove.push(id);
+          });
+          toRemove.forEach((id) => g.dropNode(id));
+
+          // 2) Add or update nodes
+          explicitIds.forEach((id) => {
+            const base =
+              id === ID_INLAWS || id === ID_GPS || id === ID_GCK
+                ? {
+                    label:
+                      (id === ID_INLAWS ? "In-laws" : "") ||
+                      (id === ID_GPS ? "Grandparents" : "") ||
+                      (id === ID_GCK ? "Grandchildren" : ""),
+                    kin: "",
+                    cluster:
+                      id === ID_INLAWS
+                        ? "inlaws"
+                        : id === ID_GPS
+                        ? "ancestors"
+                        : "descendants",
+                  }
+                : fullData.idMap.get(id) || { id };
+            const c = coords.get(id) || { x: 0, y: 0 };
+            addOrUpdateNode(id, base, c.x, c.y);
+          });
+
+          // 3) Rebuild edges: remove all then add selected (fewer diffs, simpler)
+          const allEdges = [];
+          g.forEachEdge((e) => allEdges.push(e));
+          allEdges.forEach((e) => g.dropEdge(e));
+          edges.forEach((e, idx) => {
+            const key = `${e.source}->${e.target}#${idx}`;
+            const attrs = {
+              type: "arrow",
+              color: EDGE_COLOR,
+              size: 1.8,
+              label:
+                e.type === "CHILD_OF"
+                  ? "child of"
+                  : e.type === "SPOUSE_OF"
+                  ? "spouse"
+                  : e.type,
+            };
+            if (typeof g.addDirectedEdgeWithKey === "function")
+              g.addDirectedEdgeWithKey(key, e.source, e.target, attrs);
+            else if (typeof g.addEdgeWithKey === "function")
+              g.addEdgeWithKey(key, e.source, e.target, attrs);
+            else if (typeof g.addDirectedEdge === "function")
+              g.addDirectedEdge(e.source, e.target, attrs);
+            else g.addEdge(e.source, e.target, attrs);
+          });
+        }
+
+        function centerCameraOnLayout(layout) {
+          const ids = Array.from(layout.explicitIds);
+          const b = boundsFromCoords(layout.coords, ids);
+          if (!renderer) return;
+          renderer
+            .getCamera()
+            .setState({ x: b.cx, y: b.cy, ratio: Math.max(1, b.extent * 1.6) });
+        }
+
+        function animateCameraToLayout(layout) {
+          const ids = Array.from(layout.explicitIds);
+          const b = boundsFromCoords(layout.coords, ids);
+          const cam = renderer.getCamera();
+          const cur = cam.getState();
+          // Two-stage: zoom out a bit around current center, then pan+zoom to new center
+          const steps = [
+            { x: cur.x, y: cur.y, ratio: cur.ratio * 1.5, duration: 180 },
+            {
+              x: b.cx,
+              y: b.cy,
+              ratio: Math.max(1, b.extent * 1.6),
+              duration: 320,
+            },
+          ];
+          animateCamera(renderer, steps);
+        }
+
+        function reflowToEgo(egoId, animate = true) {
+          const layout = layoutFiveTier(fullData, adj, egoId);
+          if (!renderer) {
+            // first time
+            syncGraphToLayout(layout);
+            renderer = new SigmaCtor(g, container, {
+              renderEdgeLabels: true,
+              defaultEdgeType: "arrow",
+              defaultEdgeColor: EDGE_COLOR,
+              edgeLabelSize: "proportional",
+              edgeLabelFont: "Inter, Arial, sans-serif",
+            });
+
+            renderer.setSetting("minArrowSize", 12);
+            renderer.setSetting("maxArrowSize", 20);
+            renderer.setSetting("edgeLabelSize", 12);
+
+            // draw once now
+            refreshOverlay(renderer, g, fullData.idMap);
+
+            // refresh overlay on every frame (camera move, hover, etc.)
+            renderer.on("afterRender", () => {
+              refreshOverlay(renderer, g, fullData.idMap);
+            });
+
+            // Hover highlight
+            renderer.on("enterNode", ({ node }) => {
+              g.setNodeAttribute(node, "color", "#DAA520");
+              renderer.refresh();
+            });
+
+            renderer.on("leaveNode", ({ node }) => {
+              const kin = (g.getNodeAttribute(node, "kin") || "").toLowerCase();
+              const cluster = g.getNodeAttribute(node, "cluster") || "";
+              const isCluster =
+                typeof node === "string" && node.indexOf("__cluster_") === 0;
+              let color = isCluster
+                ? "#c9a227"
+                : kin === "self"
+                ? "#DAA520"
+                : cluster === "inlaws"
+                ? "#c9a227"
+                : "#b8b8b8";
+              g.setNodeAttribute(node, "color", color);
+              renderer.refresh();
+            });
+
+            // Click to recenter on node
+            renderer.on("clickNode", ({ node }) => {
+              reflowToEgo(node, true);
+            });
+
+            // Toolbar
+            document.getElementById("reset").onclick = () =>
+              renderer.getCamera().animatedReset({ duration: 300 });
+            document.getElementById("fit").onclick = () =>
+              centerCameraOnLayout(layout);
+
+            centerCameraOnLayout(layout);
+            return;
+          }
+
+          // Subsequent updates: animate node positions + camera
+          const prevCoords = new Map();
+          g.forEachNode((id, attr) =>
+            prevCoords.set(id, { x: attr.x, y: attr.y })
+          );
+          syncGraphToLayout(layout);
+          refreshOverlay(renderer, g, fullData.idMap);
+          animateNodes(g, layout.coords, 350);
+
+          if (animate) animateCameraToLayout(layout);
+          else centerCameraOnLayout(layout);
+        }
+
+        // ====== Load once, then interactive forever ======
+        fetch(`${api}/api/v1/persons/${initialEgo}/tree?depth=3&lang=en`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (!data.nodes || !data.nodes.length) {
+              container.innerHTML =
+                "<div style='padding:20px;color:#a00'>No nodes.</div>";
+              return;
+            }
+            fullData = {
+              nodes: data.nodes,
+              edges: data.edges || [],
+              idMap: byId(data.nodes),
+            };
+            adj = buildAdj(fullData);
+            reflowToEgo(data.root || initialEgo, false);
+          })
+          .catch((err) => {
+            console.error(err);
+            container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+          });
+      })();
+    </script>
+  </body>
 </html>

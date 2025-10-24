@@ -1,0 +1,3 @@
+catalog: raw
+file_format: parquet
+s3_bucket: digixt-lake

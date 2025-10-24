@@ -1,0 +1,3 @@
+bolt_uri: localhost:7474
+user: neo4j
+password: neo4jneo4j

@@ -1,0 +1,1 @@
+SELECT ego_json FROM lake.gold.ego3_cache WHERE entity_person_id = 'P:example';

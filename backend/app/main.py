@@ -5,15 +5,20 @@ from app.routers.family import router as family_router
 from dotenv import load_dotenv
 load_dotenv(dotenv_path="backend/.env")  # if you run uvicorn from repo root
 # or load_dotenv() if you run uvicorn from backend/ folder
+# app/main.py
+from fastapi.staticfiles import StaticFiles
+
 
 
 app = FastAPI(title="Family Graph API")
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 # quick health route to prove it loads
 
-# @app.get("/health")
-# def health():
-#     return {"ok": True}
+@app.get("/health")
+def health():
+    return {"ok": True}
 
 @app.on_event("startup")
 def startup_event():

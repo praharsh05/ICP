@@ -120,6 +120,46 @@
         white-space: nowrap;
         overflow: hidden;
       }
+
+      /* === Hover popover on cards (full name + meta) === */
+      .card::after {
+        /* content comes from a data attribute we set in JS */
+        content: attr(data-pop);
+        position: absolute;
+        left: 50%;
+        top: 100%;
+        transform: translate(-50%, 6px);
+        opacity: 0;
+        pointer-events: none;
+
+        /* popover look */
+        background: #fff;
+        color: #1f2937;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 8px 10px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        font-size: 12px;
+        line-height: 1.25;
+
+        /* handle line breaks we’ll put in the attr */
+        white-space: pre-line;
+        max-width: 280px;
+        z-index: 9999;
+
+        /* small fade in */
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+
+      .card:hover::after {
+        opacity: 1;
+        transform: translate(-50%, 2px);
+      }
+
+      /* don’t show empty popovers */
+      .card[data-pop=""]::after {
+        display: none;
+      }
       .avatar {
         flex: 0 0 28px;
         height: 28px;
@@ -129,6 +169,12 @@
         display: grid;
         place-items: center;
         font-size: 14px;
+      }
+      .avatar-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 12px;
       }
       .info {
         line-height: 1.2;
@@ -275,7 +321,7 @@
         // Horizontal spacing between siblings/spouses in *graph* units
         const GAP = 3.2;
         // Tier Y levels (top positive)
-        const Y = { GP: 3.6, P: 1.8, MID: 0, C: -1.8, GC: -3.6 };
+        const Y = { GP: -3.6, P: -1.8, MID: 0, C: 1.8, GC: 3.6 };
 
         // Cluster pseudo-ids
         const ID_INLAWS = "__cluster_inlaws__",
@@ -658,7 +704,7 @@
               x: g.getNodeAttribute(id, "x"),
               y: g.getNodeAttribute(id, "y"),
             };
-            const P = worldToCSSForNode(id);
+            const P = worldToCSSForNode(id, attr);
 
             let el = existing.get(id);
             if (!el) {
@@ -666,7 +712,7 @@
               el.className = "card";
               el.dataset.id = id;
               el.innerHTML = `
-          <div class="avatar">👤</div>
+          <div class="avatar"><img class="avatar-img" /></div>
           <div class="info">
             <div class="name"></div>
             <div class="meta"></div>
@@ -722,6 +768,23 @@
               d.person_name ||
               d.id ||
               id;
+            // Determine avatar image path based on gender or cluster type
+            let avatarPath = `${api}/static/img/male_icon.jpg`; // default fallback
+
+            if (d.sex) {
+              const sex = String(d.sex).toUpperCase();
+              if (sex === "F") avatarPath = `${api}/static/img/female_icon.jpg`;
+              else avatarPath = `${api}/static/img/male_icon.jpg`;
+            } else if (isCluster) {
+              // Grandparents and grandchildren clusters use male image
+              if (id === ID_GPS || id === ID_GCK) {
+                avatarPath = `${api}/static/img/male_icon.jpg`;
+              }
+            }
+
+            const avatarImg = el.querySelector(".avatar-img");
+            if (avatarImg) avatarImg.src = avatarPath;
+
             const displayName = isCluster
               ? id === ID_GCK
                 ? "Grandchildren"
@@ -741,6 +804,19 @@
               );
             if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
             if (d.passport) metaBits.push(`Passport: ${d.passport}`);
+
+            // Build the hover text for the CSS popover: full name on first line, then meta
+            const hoverTitle = isCluster ? displayName : fullName;
+            const hoverMeta = metaBits.join(" • ");
+            const popText = [hoverTitle, hoverMeta].filter(Boolean).join("\n"); // \n -> new line
+
+            // make it available to CSS ::after
+            el.setAttribute("data-pop", popText);
+
+            // OPTIONAL: remove legacy JS hover popover if you had it
+            el.onmouseenter = null;
+            el.onmouseleave = null;
+            el.removeAttribute("title"); // we won’t use the native tooltip now
 
             // Hover handlers to show/hide the popover with full info
             el.onmouseenter = () =>

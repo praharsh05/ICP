@@ -32,7 +32,7 @@ with t1:
 
     with c2:
         if 'tree' in st.session_state:
-            src = f"{api_url}/static/sigma.html?eid={st.session_state['tree']['root']}&api={api_url}"
+            src = f"{api_url}/static/sigma_pretty_tree.html?eid={st.session_state['tree']['root']}&api={api_url}"
             st.components.v1.iframe(src, height=650, scrolling=True)
         else:
             st.info('Load a tree to visualize.')

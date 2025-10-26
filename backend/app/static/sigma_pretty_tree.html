@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Family Tree Viewer</title>
+
+    <!-- ===============  STYLE =============== -->
+    <style>
+      /* --- App look & feel --- */
+      :root {
+        --bg: #f7f4f1;
+        --gold: #daa520;
+        --ink: #1f2937;
+        --mut: #9aa3af;
+      }
+      /* html,
+      body {
+        margin: 0;
+        height: 100%;
+      } */
+
+      /* Make the whole page a flex column with a fixed toolbar and a true fill graph */
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      #wrap {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+          sans-serif;
+      }
+
+      /* --- Toolbar --- */
+      /* #toolbar {
+        padding: 10px 14px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      } */
+      #toolbar {
+        flex: 0 0 52px; /* fixed height */
+        padding: 10px 14px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      #title {
+        font-weight: 600;
+        color: var(--gold);
+        letter-spacing: 0.3px;
+      }
+      button {
+        background: var(--gold);
+        color: #fff;
+        border: 0;
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      /* --- Sigma host --- */
+      /* #graph {
+        height: calc(100vh - 52px);
+        width: 100%;
+        position: relative;
+      } */
+      #graph {
+        /* THIS is the only place Sigma and the overlay read size from */
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: 620px;
+        position: relative; /* anchor overlay */
+        overflow: hidden; /* clip overlay exactly to graph area */
+      }
+
+      /* --- Overlay root sits on top of Sigma canvas --- */
+      .overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .edge-layer {
+        position: absolute;
+        inset: 0;
+      }
+      .node-layer {
+        position: absolute;
+        inset: 0;
+      }
+
+      /* --- Card nodes (readable, no overlap) --- */
+      .card {
+        position: absolute;
+        transform: translate(-50%, -50%); /* center on (x,y) */
+        pointer-events: auto; /* clickable if needed */
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        height: 40px;
+        width: fit-content;
+        max-width: 140px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .avatar {
+        flex: 0 0 28px;
+        height: 28px;
+        width: 28px;
+        border-radius: 6px;
+        background: #f2e7d7;
+        display: grid;
+        place-items: center;
+        font-size: 14px;
+      }
+      .info {
+        line-height: 1.2;
+        overflow: hidden;
+      }
+      .name {
+        font-weight: 600;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* Small floating info box shown on hover */
+      .popover {
+        position: absolute;
+        transform: translate(-50%, -100%); /* above card */
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        padding: 8px 10px;
+        max-width: 260px;
+        z-index: 20;
+        pointer-events: none;
+        color: #1f2937;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .popover .title {
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      .popover .muted {
+        color: #6b7280;
+      }
+
+      .meta {
+        display: none;
+      }
+      .badge {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        background: var(--gold);
+        color: white;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 10px;
+      }
+
+      /* --- Edge labels (small chips placed on orthogonal segment) --- */
+      .edge-label {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        color: #6b7280;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+    </style>
+
+    <!-- Sigma + Graphology -->
+    <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+    <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
+  </head>
+
+  <body>
+    <!-- ===============  UI =============== -->
+    <div id="wrap">
+      <div id="toolbar">
+        <div id="title">Family Tree</div>
+        <div style="margin-left: auto; display: flex; gap: 8px">
+          <button id="reset">Reset</button>
+          <button id="fit">Fit</button>
+        </div>
+      </div>
+      <div id="graph"></div>
+    </div>
+
+    <script>
+      /* =======================================================================================
+   Pretty, readable family “cards” on top of Sigma (used only for pan/zoom & extents).
+   Key ideas:
+     - We compute a clean 5-tier layout in graph units.
+     - For each visible id we keep a tiny, invisible Sigma node (so Sigma knows positions).
+     - On every render frame we ask Sigma for each node’s *screen* coordinates and
+       place a DOM card there. Edges are drawn as orthogonal SVG paths.
+   ======================================================================================= */
+
+      (function () {
+        // ----------------------- Query params (eid/api) -----------------------
+        const qp = (k) => new URL(location.href).searchParams.get(k);
+        const initialEgo = qp("eid") || "E1";
+        const api = qp("api") || location.origin;
+
+        // ----------------------- Sigma bootstrapping --------------------------
+        const container = document.getElementById("graph");
+        const GraphCtor =
+          (window.graphology &&
+            (window.graphology.DirectedGraph || window.graphology.Graph)) ||
+          window.graphology.Graph;
+        const SigmaCtor = (window.sigma && window.sigma.Sigma) || window.Sigma;
+
+        const g = new GraphCtor({ multi: false, allowSelfLoops: false });
+        const renderer = new SigmaCtor(g, container, {
+          renderLabels: false, // we render our own DOM labels/cards
+          enableEdgeClickEvents: false, // edges are DOM/SVG in overlay
+        });
+        // Ensure Sigma picks up the real size of #graph before any projection math
+        requestAnimationFrame(() => {
+          if (typeof renderer.resize === "function") renderer.resize(); // sigma v2 API
+          renderer.refresh();
+        });
+
+        // --- Scale graph "world units" to pixels so spacing is big & readable
+        const UNIT = 120; // 1 layout unit ≈ 120 CSS pixels
+
+        // ----------------------- Overlay (DOM + SVG) --------------------------
+        const overlay = document.createElement("div");
+        overlay.className = "overlay";
+
+        // SVG layer for edges
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg"
+        );
+        svg.classList.add("edge-layer");
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("height", "100%");
+
+        // DOM layer for cards + edge labels
+        const nodeLayer = document.createElement("div");
+        nodeLayer.className = "node-layer";
+
+        overlay.appendChild(svg);
+        overlay.appendChild(nodeLayer);
+        container.appendChild(overlay);
+
+        // ----------------------- Layout constants ----------------------------
+        // Horizontal spacing between siblings/spouses in *graph* units
+        const GAP = 3.2;
+        // Tier Y levels (top positive)
+        const Y = { GP: 3.6, P: 1.8, MID: 0, C: -1.8, GC: -3.6 };
+
+        // Cluster pseudo-ids
+        const ID_INLAWS = "__cluster_inlaws__",
+          ID_GPS = "__cluster_grandparents__",
+          ID_GCK = "__cluster_grandchildren__";
+
+        // ----------------------- Small utilities -----------------------------
+        const add = (m, a, b) => {
+          if (!m.has(a)) m.set(a, new Set());
+          m.get(a).add(b);
+        };
+        const byId = (nodes) => {
+          const m = new Map();
+          nodes.forEach((n) => m.set(n.id, n));
+          return m;
+        };
+
+        function buildAdj(data) {
+          const parentsOf = new Map(),
+            childrenOf = new Map(),
+            spousesOf = new Map();
+          (data.edges || []).forEach((e) => {
+            if (!e || !e.source || !e.target) return;
+            const T = String(e.type || "").toUpperCase();
+            if (T === "CHILD_OF") {
+              add(parentsOf, e.source, e.target);
+              add(childrenOf, e.target, e.source);
+            } else if (T === "SPOUSE_OF") {
+              add(spousesOf, e.source, e.target);
+              add(spousesOf, e.target, e.source);
+            }
+          });
+          return { parentsOf, childrenOf, spousesOf };
+        }
+        const parents1 = (id, p) => new Set(p.get(id) || []);
+        function siblingsOf(id, parentsOf, childrenOf) {
+          const ps = parents1(id, parentsOf),
+            out = new Set();
+          ps.forEach((p) =>
+            (childrenOf.get(p) || new Set()).forEach((c) => {
+              if (c !== id) out.add(c);
+            })
+          );
+          return out;
+        }
+        function spouseParents(spouses, parentsOf) {
+          const out = new Set();
+          spouses.forEach((s) =>
+            (parentsOf.get(s) || new Set()).forEach((p) => out.add(p))
+          );
+          return out;
+        }
+        function gpOf(id, parentsOf) {
+          const res = new Set();
+          (parentsOf.get(id) || new Set()).forEach((p) =>
+            (parentsOf.get(p) || new Set()).forEach((g) => res.add(g))
+          );
+          return res;
+        }
+        const kidsOf = (id, childrenOf) => new Set(childrenOf.get(id) || []);
+        function grandKidsOf(id, childrenOf) {
+          const gs = new Set();
+          (childrenOf.get(id) || new Set()).forEach((k) =>
+            (childrenOf.get(k) || new Set()).forEach((gc) => gs.add(gc))
+          );
+          return gs;
+        }
+        function boundsFromCoords(coords, ids) {
+          const xs = [],
+            ys = [];
+          ids.forEach((id) => {
+            const c = coords.get(id);
+            if (c) {
+              xs.push(c.x);
+              ys.push(c.y);
+            }
+          });
+          if (!xs.length)
+            return { cx: 0, cy: 0, minX: 0, maxX: 0, minY: 0, maxY: 0 };
+          const minX = Math.min(...xs),
+            maxX = Math.max(...xs);
+          const minY = Math.min(...ys),
+            maxY = Math.max(...ys);
+          return {
+            cx: (minX + maxX) / 2,
+            cy: (minY + maxY) / 2,
+            minX,
+            maxX,
+            minY,
+            maxY,
+          };
+        }
+
+        // ----------------------- Popover helpers -------------------------
+        function firstWords(name, n = 1) {
+          if (!name) return "";
+          // split on whitespace; keep first n tokens
+          const toks = String(name).trim().split(/\s+/);
+          return toks.slice(0, n).join(" ");
+        }
+
+        // one reusable popover element
+        const pop = document.createElement("div");
+        pop.className = "popover";
+        pop.style.display = "none";
+        document.querySelector(".node-layer").appendChild(pop);
+
+        function showPopoverForCard(cardEl, fullName, metaBits) {
+          // content
+          pop.innerHTML = `
+    <div class="title">${fullName}</div>
+    <div class="muted">${metaBits.filter(Boolean).join(" • ") || "—"}</div>
+  `;
+          // position: above the card, inside the graph container
+          const host = document.getElementById("graph");
+          const r = cardEl.getBoundingClientRect();
+          const h = host.getBoundingClientRect();
+          const px = r.left - h.left + r.width / 2; // center X of card inside host
+          const py = r.top - h.top; // top of card inside host
+          pop.style.left = px + "px";
+          pop.style.top = py + "px";
+          pop.style.display = "block";
+        }
+
+        function hidePopover() {
+          pop.style.display = "none";
+        }
+
+        // ----------------------- Clean 5-tier layout -------------------------
+        function layoutFiveTier(data, adj, root) {
+          const { parentsOf, childrenOf, spousesOf } = adj;
+          const idMap = new Map(data.nodes.map((n) => [n.id, n]));
+
+          const spouses = new Set(spousesOf.get(root) || []);
+          const parents = parents1(root, parentsOf);
+          const siblings = siblingsOf(root, parentsOf, childrenOf);
+          const children = kidsOf(root, childrenOf);
+          const inlawParents = spouseParents(spouses, parentsOf);
+          const grandparents = gpOf(root, parentsOf);
+          const grandkids = grandKidsOf(root, childrenOf);
+
+          const coords = new Map();
+
+          // Row 0: root, spouses, siblings
+          coords.set(root, { x: 0, y: Y.MID });
+          const spousesArr = Array.from(spouses).sort();
+          spousesArr.forEach((s, i) =>
+            coords.set(s, { x: (i + 1) * GAP, y: Y.MID })
+          );
+
+          const sibArr = Array.from(siblings)
+            .filter((s) => !spouses.has(s))
+            .sort();
+          const left = [],
+            right = [];
+          sibArr.forEach((id, i) => (i % 2 === 0 ? left : right).push(id));
+          left.forEach((id, i) =>
+            coords.set(id, { x: -(i + 1) * GAP, y: Y.MID })
+          );
+          right.forEach((id, i) =>
+            coords.set(id, { x: (i + 1 + spousesArr.length) * GAP, y: Y.MID })
+          );
+
+          // Row +1: parents + in-law cluster
+          const pArr = Array.from(parents);
+          const father =
+            pArr.find(
+              (p) => (idMap.get(p)?.kin || "").toLowerCase() === "father"
+            ) || pArr[0];
+          const mother =
+            pArr.find(
+              (p) => (idMap.get(p)?.kin || "").toLowerCase() === "mother"
+            ) || pArr.find((p) => p !== father);
+          if (father) coords.set(father, { x: -0.9 * GAP, y: Y.P });
+          if (mother) coords.set(mother, { x: +0.9 * GAP, y: Y.P });
+
+          const inlaws = Array.from(inlawParents).filter(
+            (id) => !parents.has(id)
+          );
+          if (inlaws.length) {
+            const baseX = spousesArr.length
+              ? (spousesArr.length + 1.5) * GAP
+              : 2.5 * GAP;
+            coords.set(ID_INLAWS, { x: baseX, y: Y.P });
+          }
+
+          // Row +2: grandparents cluster
+          if (grandparents.size) coords.set(ID_GPS, { x: 0, y: Y.GP });
+
+          // Row −1: children (grouped by mother if spouse)
+          const KEY_ROOT = "__root__";
+          const xOf = (id) => (coords.has(id) ? coords.get(id).x : 0);
+          const childGroups = new Map();
+          Array.from(children).forEach((c) => {
+            const ps = Array.from(parentsOf.get(c) || []);
+            const motherId =
+              ps.find((p) => (idMap.get(p)?.sex || "F") === "F") || null;
+            const key = motherId && spouses.has(motherId) ? motherId : KEY_ROOT;
+            if (!childGroups.has(key)) childGroups.set(key, []);
+            childGroups.get(key).push(c);
+          });
+          childGroups.forEach((arr, key) => {
+            arr.sort();
+            const centerX =
+              key === KEY_ROOT ? xOf(root) : (xOf(root) + xOf(key)) / 2;
+            if (arr.length === 1) coords.set(arr[0], { x: centerX, y: Y.C });
+            else {
+              const n = arr.length,
+                start = centerX - ((n - 1) / 2) * GAP;
+              arr.forEach((cid, i) =>
+                coords.set(cid, { x: start + i * GAP, y: Y.C })
+              );
+            }
+          });
+
+          // Row −2: grandchildren cluster
+          if (grandkids.size) coords.set(ID_GCK, { x: 0, y: Y.GC });
+
+          // Visible set
+          const explicit = new Set(
+            [
+              root,
+              ...spousesArr,
+              ...sibArr,
+              father,
+              mother,
+              ...Array.from(children),
+            ].filter(Boolean)
+          );
+          if (coords.has(ID_INLAWS)) explicit.add(ID_INLAWS);
+          if (coords.has(ID_GPS)) explicit.add(ID_GPS);
+          if (coords.has(ID_GCK)) explicit.add(ID_GCK);
+
+          // Thin logical edges (we’ll route as right-angles later)
+          const edges = [];
+          (data.edges || []).forEach((e) => {
+            if (!e || e.source === e.target) return;
+            const T = String(e.type || "").toUpperCase();
+            if (explicit.has(e.source) && explicit.has(e.target))
+              edges.push({ source: e.source, target: e.target, type: T });
+          });
+          if (coords.has(ID_GPS)) {
+            if (father)
+              edges.push({ source: ID_GPS, target: father, type: "ANCESTOR" });
+            if (mother)
+              edges.push({ source: ID_GPS, target: mother, type: "ANCESTOR" });
+            if (!father && !mother)
+              edges.push({ source: ID_GPS, target: root, type: "ANCESTOR" });
+          }
+          if (coords.has(ID_INLAWS)) {
+            if (spousesArr.length)
+              spousesArr.forEach((s) =>
+                edges.push({ source: ID_INLAWS, target: s, type: "IN_LAW" })
+              );
+            else
+              edges.push({ source: ID_INLAWS, target: root, type: "IN_LAW" });
+          }
+          if (coords.has(ID_GCK)) {
+            const kids = Array.from(children);
+            if (kids.length)
+              kids.forEach((k) =>
+                edges.push({ source: ID_GCK, target: k, type: "DESCENDANT" })
+              );
+            else
+              edges.push({ source: ID_GCK, target: root, type: "DESCENDANT" });
+          }
+
+          return { coords, explicitIds: explicit, edges };
+        }
+
+        // ----------------------- Camera helpers -------------------------------
+        function centerCamera(layout) {
+          const ids = Array.from(layout.explicitIds);
+          const b = boundsFromCoords(layout.coords, ids);
+
+          // container size in CSS pixels
+          const rect = container.getBoundingClientRect();
+          const cw = Math.max(1, rect.width);
+          const ch = Math.max(1, rect.height);
+
+          // graph extents
+          const dx = Math.max(1e-6, (b.maxX - b.minX) * UNIT);
+          const dy = Math.max(1e-6, (b.maxY - b.minY) * UNIT);
+
+          // margin: show 15% breathing room around the graph
+          const margin = 0.15;
+          const rx = dx / (cw * (1 - margin));
+          const ry = dy / (ch * (1 - margin));
+          const ratio = Math.max(rx, ry, 0.0001); // // allow zoom < 1 to magnify small world
+
+          renderer
+            .getCamera()
+            .setState({ x: b.cx * UNIT, y: b.cy * UNIT, ratio });
+        }
+
+        // Convert world (graph) coords to CSS pixels.
+        // FIX: ask Sigma for *display* coordinates first; fall back to manual projection.
+        function worldToCSSForNode(id) {
+          // World (graph) coordinates:
+          const wx = g.getNodeAttribute(id, "x") || 0;
+          const wy = g.getNodeAttribute(id, "y") || 0;
+
+          // Camera state & container size in CSS pixels:
+          const cam = renderer.getCamera();
+          const { x: cx, y: cy, ratio: z } = cam.getState();
+          const el = renderer.getContainer(); // == #graph
+          const cw = el.clientWidth || 800;
+          const ch = el.clientHeight || 600;
+
+          // Project world -> CSS pixels (center of container is 0,0 in camera space)
+          return {
+            x: (wx - cx) / (z || 1) + cw / 2,
+            y: (wy - cy) / (z || 1) + ch / 2,
+          };
+        }
+
+        // ----------------------- Overlay drawing ------------------------------
+        function drawEdges(layout) {
+          // Clear SVG and edge-label DOM chips
+          while (svg.firstChild) svg.removeChild(svg.firstChild);
+          nodeLayer.querySelectorAll(".edge-label").forEach((n) => n.remove());
+
+          layout.edges.forEach((e) => {
+            const S = worldToCSSForNode(e.source);
+            const T = worldToCSSForNode(e.target);
+
+            // Orthogonal “dog-leg” route
+            const midY = (S.y + T.y) / 2;
+            const path = `M ${S.x} ${S.y} L ${S.x} ${midY} L ${T.x} ${midY} L ${T.x} ${T.y}`;
+
+            const p = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "path"
+            );
+            p.setAttribute("d", path);
+            p.setAttribute("fill", "none");
+            p.setAttribute(
+              "stroke",
+              e.type === "SPOUSE_OF" ? "#bf7f00" : "#aeb4bd"
+            );
+            p.setAttribute("stroke-width", "2");
+            p.setAttribute("stroke-linecap", "round");
+            svg.appendChild(p);
+
+            // Edge label chip
+            const lx = (S.x + T.x) / 2,
+              ly = midY;
+            const lab = document.createElement("div");
+            lab.className = "edge-label";
+            const pretty = (t) =>
+              t === "CHILD_OF"
+                ? "child of"
+                : t === "SPOUSE_OF"
+                ? "spouse"
+                : t === "ANCESTOR"
+                ? "ancestor"
+                : t === "DESCENDANT"
+                ? "descendant"
+                : t === "IN_LAW"
+                ? "in-law"
+                : t.toLowerCase();
+            lab.textContent = pretty(e.type || "");
+            lab.style.left = lx + "px";
+            lab.style.top = ly + "px";
+            nodeLayer.appendChild(lab);
+          });
+        }
+
+        function drawCards(layout, idMap) {
+          // Recycle existing cards
+          const existing = new Map();
+          nodeLayer
+            .querySelectorAll(".card")
+            .forEach((el) => existing.set(el.dataset.id, el));
+          const used = new Set();
+
+          layout.explicitIds.forEach((id) => {
+            if (!id) return;
+            const attr = {
+              x: g.getNodeAttribute(id, "x"),
+              y: g.getNodeAttribute(id, "y"),
+            };
+            const P = worldToCSSForNode(id);
+
+            let el = existing.get(id);
+            if (!el) {
+              el = document.createElement("div");
+              el.className = "card";
+              el.dataset.id = id;
+              el.innerHTML = `
+          <div class="avatar">👤</div>
+          <div class="info">
+            <div class="name"></div>
+            <div class="meta"></div>
+          </div>`;
+              nodeLayer.appendChild(el);
+            }
+            used.add(id);
+
+            // Fill text
+            // const d = idMap.get(id) || {};
+            // // Prefer common name fields; fall back to id
+            // const fullName =
+            //   d.full_name ||
+            //   d.name ||
+            //   d.label ||
+            //   d.FullName ||
+            //   d.person_name ||
+            //   d.id ||
+            //   id;
+
+            // const isCluster =
+            //   typeof id === "string" && id.startsWith("__cluster_");
+
+            // const displayName = isCluster
+            //   ? id === ID_GCK
+            //     ? "Grandchildren"
+            //     : id === ID_GPS
+            //     ? "Grandparents"
+            //     : "In-laws"
+            //   : fullName;
+            // el.querySelector(".name").textContent = displayName;
+
+            // // Compact card shows only the name. Put metadata in a tooltip (hover).
+            // const metaBits = [];
+            // if (d.life_status) metaBits.push(String(d.life_status));
+            // if (d.sex)
+            //   metaBits.push(
+            //     String(d.sex).toUpperCase() === "F" ? "Female" : "Male"
+            //   );
+            // if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
+            // if (d.passport) metaBits.push(`Passport: ${d.passport}`);
+            // el.title = metaBits.join(" • "); // <- shows on hover
+
+            // Fill text (short on card; full in hover)
+            const d = idMap.get(id) || {};
+            const isCluster =
+              typeof id === "string" && id.startsWith("__cluster_");
+            const fullName =
+              d.full_name ||
+              d.name ||
+              d.label ||
+              d.FullName ||
+              d.person_name ||
+              d.id ||
+              id;
+            const displayName = isCluster
+              ? id === ID_GCK
+                ? "Grandchildren"
+                : id === ID_GPS
+                ? "Grandparents"
+                : "In-laws"
+              : firstWords(fullName, 1); // <= only first token on card
+
+            el.querySelector(".name").textContent = displayName;
+
+            // Build meta once; used in hover popover
+            const metaBits = [];
+            if (d.life_status) metaBits.push(String(d.life_status));
+            if (d.sex)
+              metaBits.push(
+                String(d.sex).toUpperCase() === "F" ? "Female" : "Male"
+              );
+            if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
+            if (d.passport) metaBits.push(`Passport: ${d.passport}`);
+
+            // Hover handlers to show/hide the popover with full info
+            el.onmouseenter = () =>
+              showPopoverForCard(
+                el,
+                isCluster ? displayName : fullName,
+                metaBits
+              );
+            el.onmouseleave = hidePopover;
+
+            // Place the card at screen coords
+            el.style.left = P.x + "px";
+            el.style.top = P.y + "px";
+          });
+
+          // Remove unused
+          existing.forEach((el, id) => {
+            if (!used.has(id)) el.remove();
+          });
+        }
+
+        function refresh(layout, idMap) {
+          drawEdges(layout);
+          drawCards(layout, idMap);
+        }
+
+        // ----------------------- Sync Sigma graph (invisible nodes) -----------
+        function syncGraph(layout, idMap) {
+          const ids = Array.from(layout.explicitIds);
+
+          // drop nodes not visible
+          const toDrop = [];
+          g.forEachNode((id) => {
+            if (!layout.explicitIds.has(id)) toDrop.push(id);
+          });
+          toDrop.forEach((id) => g.dropNode(id));
+
+          // (re)add visible nodes with positions
+          ids.forEach((id) => {
+            if (!id) return;
+            // const c = layout.coords.get(id) || { x: 0, y: 0 };
+            const c0 = layout.coords.get(id) || { x: 0, y: 0 };
+            const c = { x: c0.x * UNIT, y: c0.y * UNIT };
+            if (!g.hasNode(id)) {
+              // size>0 ensures Sigma computes display data; color transparent hides it
+              g.addNode(id, { x: c.x, y: c.y, size: 8, color: "#00000000" });
+            } else {
+              g.setNodeAttribute(id, "x", c.x);
+              g.setNodeAttribute(id, "y", c.y);
+            }
+          });
+        }
+
+        // ----------------------- Load data -> layout -> render ----------------
+        let fullData = null,
+          adj = null,
+          currentLayout = null;
+
+        fetch(`${api}/api/v1/persons/${initialEgo}/tree?depth=3&lang=en`)
+          .then((r) => r.json())
+          .then((data) => {
+            // DEBUG
+            console.log(
+              "[API] nodes: ",
+              data.nodes?.length || 0,
+              "edges:",
+              data.edges?.length || 0,
+              data
+            );
+            if (!data.nodes || !data.nodes.length) {
+              container.innerHTML =
+                "<div style='padding:20px;color:#a00'>No nodes.</div>";
+              return;
+            }
+            fullData = {
+              nodes: data.nodes,
+              edges: data.edges || [],
+              idMap: byId(data.nodes),
+            };
+            adj = buildAdj(fullData);
+            currentLayout = layoutFiveTier(
+              fullData,
+              adj,
+              data.root || initialEgo
+            );
+
+            //DEBUG
+            console.log(
+              "[LAYOUT] visible nodes:",
+              currentLayout.explicitIds.size,
+              "edges:",
+              currentLayout.edges.length
+            );
+
+            // Keep Sigma in sync (invisible graph used for camera / extents)
+            syncGraph(currentLayout, fullData.idMap);
+            centerCamera(currentLayout);
+
+            requestAnimationFrame(() => centerCamera(currentLayout));
+            // First draw AFTER Sigma renders once (prevents stacked-at-0,0)
+            requestAnimationFrame(() => refresh(currentLayout, fullData.idMap));
+          })
+          .catch((err) => {
+            console.error(err);
+            container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+          });
+
+        // Reposition overlay every frame Sigma renders (pan/zoom/resize)
+        renderer.on("afterRender", () => {
+          if (currentLayout) refresh(currentLayout, fullData.idMap);
+        });
+
+        // Toolbar actions
+        document.getElementById("reset").onclick = () =>
+          renderer.getCamera().animatedReset({ duration: 300 });
+        document.getElementById("fit").onclick = () => {
+          if (currentLayout) centerCamera(currentLayout);
+        };
+        window.addEventListener("resize", () => {
+          if (currentLayout) centerCamera(currentLayout);
+        });
+      })();
+    </script>
+  </body>
+</html>

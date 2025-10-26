@@ -200,74 +200,80 @@
               top: "0",
               width: "100%",
               height: "100%",
-              pointerEvents: "none", // don't block graph interactions
+              pointerEvents: "none",
+              zIndex: "10",
               fontFamily:
                 "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-              zIndex: "10",
             });
-            container.style.position = "relative"; // important for absolute positioning
+            // CRITICAL: ensure the graph container is positioning context
+            const cs = getComputedStyle(container);
+            if (cs.position === "static") container.style.position = "relative";
             container.appendChild(layer);
           }
           return layer;
         }
 
         // Draw/reuse one icon+label DOM element per visible node
+        // DPI-safe overlay renderer
         function refreshOverlay(renderer, graph, idMap) {
-          const layer = ensureOverlayLayer(container);
+          const layer = ensureOverlayLayer(renderer.getContainer());
 
-          // cache existing elements for reuse
+          // Prepare reuse map
           const existing = new Map();
           Array.from(layer.children).forEach((el) =>
             existing.set(el.dataset.id, el)
           );
           const used = new Set();
 
+          // Camera & container in CSS px
           const cam = renderer.getCamera();
-          const { x: cx, y: cy, ratio } = cam.getState();
+          const { x: cx, y: cy, ratio: zoom } = cam.getState();
           const cw = renderer.getContainer().clientWidth || 800;
           const ch = renderer.getContainer().clientHeight || 600;
 
           graph.forEachNode((id, attrs) => {
-            // Sigma display data (may be undefined on first frames)
-            const dd = renderer.getNodeDisplayData(id);
-
             used.add(id);
 
+            // Make/reuse DOM element
             let el = existing.get(id);
             if (!el) {
               el = document.createElement("div");
               el.dataset.id = id;
-              el.style.position = "absolute";
-              el.style.transform = "translate(-50%, -50%)"; // center on node
-              el.style.textAlign = "center";
-              el.style.pointerEvents = "none";
+              Object.assign(el.style, {
+                position: "absolute",
+                transform: "translate(-50%, -50%)",
+                textAlign: "center",
+                pointerEvents: "none",
+              });
 
-              // ICON
               const img = document.createElement("img");
               img.className = "node-icon";
-              img.style.display = "block";
-              img.style.pointerEvents = "none";
-              img.style.width = "32px";
-              img.style.height = "32px";
-              img.style.borderRadius = "50%";
-              img.style.boxShadow = "0 0 0 3px rgba(218,165,32,0.65)"; // gold ring
+              Object.assign(img.style, {
+                display: "block",
+                pointerEvents: "none",
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                boxShadow: "0 0 0 3px rgba(218,165,32,0.65)",
+              });
               el.appendChild(img);
 
-              // LABEL (BELOW the icon)
               const lab = document.createElement("div");
               lab.className = "node-label";
-              lab.style.marginTop = "6px";
-              lab.style.fontSize = "12px";
-              lab.style.lineHeight = "1.1";
-              lab.style.color = "#1f2937";
-              lab.style.fontWeight = "500";
-              lab.style.whiteSpace = "nowrap";
+              Object.assign(lab.style, {
+                marginTop: "6px",
+                fontSize: "12px",
+                lineHeight: "1.1",
+                color: "#1f2937",
+                fontWeight: "500",
+                whiteSpace: "nowrap",
+              });
               el.appendChild(lab);
 
               layer.appendChild(el);
             }
 
-            // pick icon file
+            // Choose icon
             const nodeData = idMap.get(id) || {};
             const rawSex =
               nodeData.sex ??
@@ -275,11 +281,11 @@
               nodeData.gender ??
               attrs.sex ??
               "";
-            const sex = String(rawSex).trim().toUpperCase(); // "M" | "F" | ""
+            const sex = String(rawSex).trim().toUpperCase();
             const img = el.querySelector(".node-icon");
 
             if (id === ID_INLAWS || id === ID_GPS || id === ID_GCK) {
-              img.src = ICON_CLUSTER; // your cluster icon (or reuse male)
+              img.src = ICON_CLUSTER;
               img.style.filter = "grayscale(100%)";
               img.style.boxShadow = "0 0 0 3px rgba(201,162,39,0.55)";
             } else {
@@ -288,43 +294,26 @@
               img.style.boxShadow = "0 0 0 3px rgba(218,165,32,0.65)";
             }
 
-            // --- Robust screen coords & pixel size ---
-            let sx, sy, px;
+            // === Project world coords (attrs.x/y) to CSS px using the camera ===
+            const wx = attrs.x ?? graph.getNodeAttribute(id, "x") ?? 0;
+            const wy = attrs.y ?? graph.getNodeAttribute(id, "y") ?? 0;
 
-            if (
-              dd &&
-              Number.isFinite(dd.x) &&
-              Number.isFinite(dd.y) &&
-              Number.isFinite(dd.size)
-            ) {
-              // Use Sigma-provided coords/sizes when available
-              sx = dd.x;
-              sy = dd.y;
-              px = dd.size * 2.1;
-            } else {
-              // Fallback: project world coords to viewport via camera state
-              const wx = attrs.x ?? graph.getNodeAttribute(id, "x") ?? 0;
-              const wy = attrs.y ?? graph.getNodeAttribute(id, "y") ?? 0;
-              const z = ratio || 1;
+            const sx = (wx - cx) / (zoom || 1) + cw / 2; // CSS px
+            const sy = (wy - cy) / (zoom || 1) + ch / 2; // CSS px
 
-              sx = (wx - cx) / z + cw / 2;
-              sy = (wy - cy) / z + ch / 2;
-
-              const nodeSize =
-                attrs.size ?? graph.getNodeAttribute(id, "size") ?? 16;
-              px = (nodeSize / z) * 2.1;
-            }
-
-            // Clamp size to keep readable
-            px = Math.max(28, Math.min(46, px));
+            // Icon size in CSS px (scale with zoom)
+            const nodeSize =
+              attrs.size ?? graph.getNodeAttribute(id, "size") ?? 16;
+            let px = (nodeSize / (zoom || 1)) * 2.1;
+            px = Math.max(28, Math.min(46, px)); // clamp
             img.style.width = px + "px";
             img.style.height = px + "px";
 
-            // place element (centered on the node; label is below via marginTop)
+            // Position DOM
             el.style.left = sx + "px";
             el.style.top = sy + "px";
 
-            // label
+            // Label
             const labelDiv = el.querySelector(".node-label");
             const isSelf =
               attrs.kin && String(attrs.kin).toLowerCase() === "self";
@@ -332,7 +321,7 @@
             labelDiv.style.fontWeight = isSelf ? "700" : "500";
           });
 
-          // clean up unused
+          // Cleanup
           existing.forEach((el, id) => {
             if (!used.has(id)) el.remove();
           });

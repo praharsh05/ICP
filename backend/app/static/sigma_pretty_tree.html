@@ -72,11 +72,6 @@
       }
 
       /* --- Sigma host --- */
-      /* #graph {
-        height: calc(100vh - 52px);
-        width: 100%;
-        position: relative;
-      } */
       #graph {
         /* THIS is the only place Sigma and the overlay read size from */
         flex: 1 1 auto;
@@ -325,7 +320,8 @@
 
         // Cluster pseudo-ids
         const ID_INLAWS = "__cluster_inlaws__",
-          ID_GPS = "__cluster_grandparents__",
+          ID_GPS_M = "__cluster_grandparents_m__",
+          ID_GPS_F = "__cluster_grandparents_f__",
           ID_GCK = "__cluster_grandchildren__";
 
         // ----------------------- Small utilities -----------------------------
@@ -498,18 +494,29 @@
           if (father) coords.set(father, { x: -0.9 * GAP, y: Y.P });
           if (mother) coords.set(mother, { x: +0.9 * GAP, y: Y.P });
 
+          // Only show in-laws that actually exist in the current payload
           const inlaws = Array.from(inlawParents).filter(
             (id) => !parents.has(id)
           );
-          if (inlaws.length) {
+          const inlawsVisible = inlaws.filter((id) => idMap.has(id));
+          if (inlawsVisible.length > 0) {
             const baseX = spousesArr.length
               ? (spousesArr.length + 1.5) * GAP
               : 2.5 * GAP;
             coords.set(ID_INLAWS, { x: baseX, y: Y.P });
           }
 
-          // Row +2: grandparents cluster
-          if (grandparents.size) coords.set(ID_GPS, { x: 0, y: Y.GP });
+          // Row +2: grandparents clusters (split paternal/maternal) — only if VISIBLE in data.nodes
+          const gpsF = father ? gpOf(father, parentsOf) : new Set();
+          const gpsM = mother ? gpOf(mother, parentsOf) : new Set();
+
+          const gpsFVisible = Array.from(gpsF).filter((id) => idMap.has(id));
+          const gpsMVisible = Array.from(gpsM).filter((id) => idMap.has(id));
+
+          if (gpsFVisible.length > 0)
+            coords.set(ID_GPS_F, { x: -0.9 * GAP, y: Y.GP }); // paternal
+          if (gpsMVisible.length > 0)
+            coords.set(ID_GPS_M, { x: +0.9 * GAP, y: Y.GP }); // maternal
 
           // Row −1: children (grouped by mother if spouse)
           const KEY_ROOT = "__root__";
@@ -537,8 +544,12 @@
             }
           });
 
-          // Row −2: grandchildren cluster
-          if (grandkids.size) coords.set(ID_GCK, { x: 0, y: Y.GC });
+          // Row −2: grandchildren cluster — only if some grandkids are visible
+          const grandkidsVisible = Array.from(grandkids).filter((id) =>
+            idMap.has(id)
+          );
+          if (grandkidsVisible.length > 0)
+            coords.set(ID_GCK, { x: 0, y: Y.GC });
 
           // Visible set
           const explicit = new Set(
@@ -552,41 +563,80 @@
             ].filter(Boolean)
           );
           if (coords.has(ID_INLAWS)) explicit.add(ID_INLAWS);
-          if (coords.has(ID_GPS)) explicit.add(ID_GPS);
+          if (coords.has(ID_GPS_F)) explicit.add(ID_GPS_F);
+          if (coords.has(ID_GPS_M)) explicit.add(ID_GPS_M);
           if (coords.has(ID_GCK)) explicit.add(ID_GCK);
 
           // Thin logical edges (we’ll route as right-angles later)
+          // Only keep direct edges:
+          //  - CHILD_OF: child -> their actual parent
+          //  - SPOUSE_OF: between declared spouses
           const edges = [];
           (data.edges || []).forEach((e) => {
             if (!e || e.source === e.target) return;
+            if (!explicit.has(e.source) || !explicit.has(e.target)) return;
+
             const T = String(e.type || "").toUpperCase();
-            if (explicit.has(e.source) && explicit.has(e.target))
-              edges.push({ source: e.source, target: e.target, type: T });
+            if (T === "CHILD_OF") {
+              // keep only if target is one of the child's recorded parents
+              const ps = parentsOf.get(e.source) || new Set();
+              if (ps.has(e.target)) {
+                edges.push({
+                  source: e.source,
+                  target: e.target,
+                  type: "CHILD_OF",
+                });
+              }
+            } else if (T === "SPOUSE_OF") {
+              // keep only if spouses according to adjacency
+              const sp = spousesOf.get(e.source) || new Set();
+              if (sp.has(e.target)) {
+                edges.push({
+                  source: e.source,
+                  target: e.target,
+                  type: "SPOUSE_OF",
+                });
+              }
+            }
           });
-          if (coords.has(ID_GPS)) {
-            if (father)
-              edges.push({ source: ID_GPS, target: father, type: "ANCESTOR" });
-            if (mother)
-              edges.push({ source: ID_GPS, target: mother, type: "ANCESTOR" });
-            if (!father && !mother)
-              edges.push({ source: ID_GPS, target: root, type: "ANCESTOR" });
+
+          // Grandparent clusters connect ONLY to the corresponding parent
+          if (coords.has(ID_GPS_F) && father) {
+            edges.push({
+              source: ID_GPS_F,
+              target: father,
+              type: "PATERNAL_GP",
+            });
           }
+          if (coords.has(ID_GPS_M) && mother) {
+            edges.push({
+              source: ID_GPS_M,
+              target: mother,
+              type: "MATERNAL_GP",
+            });
+          }
+
+          // In-laws cluster connects to spouse(s) (if any), else root (optional)
           if (coords.has(ID_INLAWS)) {
-            if (spousesArr.length)
+            if (spousesArr.length) {
               spousesArr.forEach((s) =>
                 edges.push({ source: ID_INLAWS, target: s, type: "IN_LAW" })
               );
-            else
+            } else {
               edges.push({ source: ID_INLAWS, target: root, type: "IN_LAW" });
+            }
           }
+
+          // Grandchildren cluster connects to each child (context only)
           if (coords.has(ID_GCK)) {
             const kids = Array.from(children);
-            if (kids.length)
+            if (kids.length) {
               kids.forEach((k) =>
                 edges.push({ source: ID_GCK, target: k, type: "DESCENDANT" })
               );
-            else
+            } else {
               edges.push({ source: ID_GCK, target: root, type: "DESCENDANT" });
+            }
           }
 
           return { coords, explicitIds: explicit, edges };
@@ -673,11 +723,13 @@
             lab.className = "edge-label";
             const pretty = (t) =>
               t === "CHILD_OF"
-                ? "child of"
+                ? "children"
                 : t === "SPOUSE_OF"
                 ? "spouse"
-                : t === "ANCESTOR"
-                ? "ancestor"
+                : t === "MATERNAL_GP"
+                ? "maternal grandparents"
+                : t === "PATERNAL_GP"
+                ? "paternal grandparents"
                 : t === "DESCENDANT"
                 ? "descendant"
                 : t === "IN_LAW"
@@ -721,41 +773,6 @@
             }
             used.add(id);
 
-            // Fill text
-            // const d = idMap.get(id) || {};
-            // // Prefer common name fields; fall back to id
-            // const fullName =
-            //   d.full_name ||
-            //   d.name ||
-            //   d.label ||
-            //   d.FullName ||
-            //   d.person_name ||
-            //   d.id ||
-            //   id;
-
-            // const isCluster =
-            //   typeof id === "string" && id.startsWith("__cluster_");
-
-            // const displayName = isCluster
-            //   ? id === ID_GCK
-            //     ? "Grandchildren"
-            //     : id === ID_GPS
-            //     ? "Grandparents"
-            //     : "In-laws"
-            //   : fullName;
-            // el.querySelector(".name").textContent = displayName;
-
-            // // Compact card shows only the name. Put metadata in a tooltip (hover).
-            // const metaBits = [];
-            // if (d.life_status) metaBits.push(String(d.life_status));
-            // if (d.sex)
-            //   metaBits.push(
-            //     String(d.sex).toUpperCase() === "F" ? "Female" : "Male"
-            //   );
-            // if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
-            // if (d.passport) metaBits.push(`Passport: ${d.passport}`);
-            // el.title = metaBits.join(" • "); // <- shows on hover
-
             // Fill text (short on card; full in hover)
             const d = idMap.get(id) || {};
             const isCluster =
@@ -777,7 +794,7 @@
               else avatarPath = `${api}/static/img/male_icon.jpg`;
             } else if (isCluster) {
               // Grandparents and grandchildren clusters use male image
-              if (id === ID_GPS || id === ID_GCK) {
+              if (id === ID_GPS_F || id === ID_GPS_M || id === ID_GCK) {
                 avatarPath = `${api}/static/img/male_icon.jpg`;
               }
             }
@@ -788,8 +805,10 @@
             const displayName = isCluster
               ? id === ID_GCK
                 ? "Grandchildren"
-                : id === ID_GPS
-                ? "Grandparents"
+                : id === ID_GPS_F
+                ? "Paternal Grandparents"
+                : id === ID_GPS_M
+                ? "Maternal Grandparents"
                 : "In-laws"
               : firstWords(fullName, 1); // <= only first token on card
 
@@ -915,9 +934,18 @@
             syncGraph(currentLayout, fullData.idMap);
             centerCamera(currentLayout);
 
-            requestAnimationFrame(() => centerCamera(currentLayout));
-            // First draw AFTER Sigma renders once (prevents stacked-at-0,0)
-            requestAnimationFrame(() => refresh(currentLayout, fullData.idMap));
+            // requestAnimationFrame(() => centerCamera(currentLayout));
+            // // First draw AFTER Sigma renders once (prevents stacked-at-0,0)
+            // requestAnimationFrame(() => refresh(currentLayout, fullData.idMap));
+
+            // Force a render tick, then draw exactly after the first Sigma paint.
+            // This guarantees display coords exist for ALL nodes (including new clusters).
+            renderer.refresh();
+            const onFirst = () => {
+              refresh(currentLayout, fullData.idMap);
+              renderer.removeListener("afterRender", onFirst);
+            };
+            renderer.on("afterRender", onFirst);
           })
           .catch((err) => {
             console.error(err);

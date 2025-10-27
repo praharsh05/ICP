@@ -92,7 +92,7 @@ def _card_html(person: dict, api_url: str):
 with t1:
     c1, c2 = st.columns([1, 2])
     with c1:
-        person_id = st.text_input('Person ID', 'P1292597966')
+        person_id = st.text_input('Person ID', 'P1968702237')
         if st.button('Load Tree', use_container_width=True):
             try:
                 r = requests.get(f'{api_url}/api/v1/persons/{person_id}/tree',
@@ -104,7 +104,7 @@ with t1:
 
         # accordion on the LEFT
         if 'tree' in st.session_state:
-            st.markdown("### Annotated")
+            st.markdown("### Family Details")
             buckets = _group_nodes(st.session_state['tree'])
 
             order = [

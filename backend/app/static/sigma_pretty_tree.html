@@ -56,6 +56,20 @@
         gap: 12px;
         align-items: center;
       }
+      #toolbar button {
+        background-color: #daa520;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+      }
+
+      #toolbar button:hover {
+        background-color: #b58d1c;
+      }
 
       #title {
         font-weight: 600;
@@ -79,6 +93,24 @@
         min-height: 620px;
         position: relative; /* anchor overlay */
         overflow: hidden; /* clip overlay exactly to graph area */
+      }
+
+      /* Keep the same background color when the graph is fullscreen */
+      #graph:fullscreen,
+      #graph:-webkit-full-screen {
+        /* Safari */
+        background: var(--bg) !important;
+      }
+
+      /* Also paint the Sigma canvases the same color so they don't appear black */
+      #graph canvas {
+        background: var(--bg) !important;
+      }
+
+      /* Optional if you ever fullscreen the whole wrapper instead of #graph */
+      #wrap:fullscreen,
+      #wrap:-webkit-full-screen {
+        background: var(--bg) !important;
       }
 
       /* --- Overlay root sits on top of Sigma canvas --- */
@@ -253,6 +285,9 @@
         border-radius: 999px;
         white-space: nowrap;
       }
+      :fullscreen {
+        background: #fafafa;
+      }
     </style>
 
     <!-- Sigma + Graphology -->
@@ -268,6 +303,7 @@
         <div style="margin-left: auto; display: flex; gap: 8px">
           <button id="reset">Reset</button>
           <button id="fit">Fit</button>
+          <button id="fullscreen">Full Screen</button>
         </div>
       </div>
       <div id="graph"></div>
@@ -793,8 +829,6 @@
             }
             used.add(id);
 
-            
-
             // Fill text (short on card; full in hover)
             const d = idMap.get(id) || {};
             const isCluster =
@@ -1002,6 +1036,37 @@
         document.getElementById("fit").onclick = () => {
           if (currentLayout) centerCamera(currentLayout);
         };
+        // --- Fullscreen toggle ---
+        const fullscreenBtn = document.getElementById("fullscreen");
+        let isFullscreen = false;
+
+        fullscreenBtn.onclick = () => {
+          const graphContainer =
+            document.querySelector("#sigma-container") || document.body;
+
+          if (!isFullscreen) {
+            if (graphContainer.requestFullscreen)
+              graphContainer.requestFullscreen();
+            else if (graphContainer.webkitRequestFullscreen)
+              graphContainer.webkitRequestFullscreen();
+            fullscreenBtn.textContent = "Exit Fullscreen";
+            isFullscreen = true;
+          } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen)
+              document.webkitExitFullscreen();
+            fullscreenBtn.textContent = "Fullscreen";
+            isFullscreen = false;
+          }
+        };
+
+        // Exit handler (so if user presses ESC, button resets)
+        document.addEventListener("fullscreenchange", () => {
+          if (!document.fullscreenElement) {
+            fullscreenBtn.textContent = "Fullscreen";
+            isFullscreen = false;
+          }
+        });
         window.addEventListener("resize", () => {
           if (currentLayout) centerCamera(currentLayout);
         });

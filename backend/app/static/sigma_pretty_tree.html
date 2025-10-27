@@ -151,6 +151,18 @@
         transform: translate(-50%, 2px);
       }
 
+      /* highlight the queried (self) person’s card */
+      .card.is-self {
+        background: #fff7d6; /* warm highlight */
+        border: 1.5px solid var(--gold);
+        box-shadow: 0 0 0 3px rgba(218, 165, 32, 0.16),
+          /* soft gold ring */ 0 10px 22px rgba(0, 0, 0, 0.12);
+      }
+
+      .card.is-self .avatar {
+        box-shadow: 0 0 0 2px var(--gold) inset;
+      }
+
       /* don’t show empty popovers */
       .card[data-pop=""]::after {
         display: none;
@@ -781,10 +793,17 @@
             }
             used.add(id);
 
+            
+
             // Fill text (short on card; full in hover)
             const d = idMap.get(id) || {};
             const isCluster =
               typeof id === "string" && id.startsWith("__cluster_");
+            // mark highlight if this card is the ego ("self")
+            const isSelf =
+              !isCluster &&
+              String((idMap.get(id) || {}).kin || "").toLowerCase() === "self";
+            el.classList.toggle("is-self", isSelf);
             const fullName =
               d.full_name ||
               d.name ||

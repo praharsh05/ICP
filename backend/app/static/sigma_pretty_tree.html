@@ -208,7 +208,15 @@
       }
 
       .meta {
-        display: none;
+        display: block;
+        font-size: 11px;
+        line-height: 1.1;
+        color: #6b7280; /* muted */
+        margin-bottom: 2px; /* small gap above the name */
+        text-transform: capitalize;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .badge {
         position: absolute;
@@ -766,8 +774,8 @@
               el.innerHTML = `
           <div class="avatar"><img class="avatar-img" /></div>
           <div class="info">
-            <div class="name"></div>
             <div class="meta"></div>
+            <div class="name"></div>
           </div>`;
               nodeLayer.appendChild(el);
             }
@@ -813,6 +821,18 @@
               : firstWords(fullName, 1); // <= only first token on card
 
             el.querySelector(".name").textContent = displayName;
+            // Kin line above the name
+            const kinText = isCluster
+              ? id === ID_GCK
+                ? "grandchildren"
+                : id === ID_GPS_F
+                ? "paternal grandparents"
+                : id === ID_GPS_M
+                ? "maternal grandparents"
+                : "in-laws"
+              : d.kin || "";
+
+            el.querySelector(".meta").textContent = kinText;
 
             // Build meta once; used in hover popover
             const metaBits = [];

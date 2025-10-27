@@ -13,7 +13,7 @@ div.stButton>button { background-color: var(--gold); color: white; border: 0; bo
 
 st.title('Family Tree — PoC')
 
-api_url = 'http://localhost:8000'
+api_url = 'http://localhost:6694'
 lang = 'en'
 
 t1, t2 = st.tabs(['Tree','LCA'])

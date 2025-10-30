@@ -95,10 +95,44 @@
         overflow: hidden; /* clip overlay exactly to graph area */
       }
 
-      /* Keep the same background color when the graph is fullscreen */
+      /* show/hide helper */
+      .hidden {
+        display: none !important;
+      }
+
+      /* Floating toolbar shown when #graph is fullscreen */
+      .fs-controls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        gap: 8px;
+        z-index: 1000;
+        pointer-events: auto;
+      }
+
+      .fs-controls button {
+        background-color: #daa520;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+      }
+
+      .fs-controls button:hover {
+        background-color: #b58d1c;
+      }
+
+      /* Ensure same background when fullscreen */
       #graph:fullscreen,
       #graph:-webkit-full-screen {
-        /* Safari */
+        background: var(--bg) !important;
+      }
+      #graph:fullscreen canvas,
+      #graph:-webkit-full-screen canvas {
         background: var(--bg) !important;
       }
 
@@ -306,7 +340,14 @@
           <button id="fullscreen">Full Screen</button>
         </div>
       </div>
-      <div id="graph"></div>
+      <div id="graph">
+        <!-- Floating controls visible only in fullscreen -->
+        <div id="fsControls" class="fs-controls hidden">
+          <button id="fs-reset" title="Reset">Reset</button>
+          <button id="fs-fit" title="Fit">Fit</button>
+          <button id="fs-exit" title="Exit Fullscreen">Exit</button>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -324,6 +365,9 @@
         const qp = (k) => new URL(location.href).searchParams.get(k);
         const initialEgo = qp("eid") || "E1";
         const api = qp("api") || location.origin;
+
+        let currentRoot = initialEgo; // who's "self" right now
+        let loading = false; // avoid double-click races
 
         // ----------------------- Sigma bootstrapping --------------------------
         const container = document.getElementById("graph");
@@ -833,11 +877,25 @@
             const d = idMap.get(id) || {};
             const isCluster =
               typeof id === "string" && id.startsWith("__cluster_");
-            // mark highlight if this card is the ego ("self")
-            const isSelf =
-              !isCluster &&
-              String((idMap.get(id) || {}).kin || "").toLowerCase() === "self";
+            // mark highlight if this card is the currentRoot
+            const isSelf = !isCluster && id === currentRoot;
             el.classList.toggle("is-self", isSelf);
+
+            // clicking a card makes it the new self and reloads the neighborhood
+            el.onclick = async (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              if (loading || id === currentRoot) return;
+
+              currentRoot = id; // optimistic highlight
+              el.classList.add("is-self");
+
+              try {
+                await loadAndRender(id); // fetch & re-render (no page reload)
+              } catch (e) {
+                console.error("Failed to load new ego:", e);
+              }
+            };
             const fullName =
               d.full_name ||
               d.name ||
@@ -967,63 +1025,50 @@
           adj = null,
           currentLayout = null;
 
-        fetch(`${api}/api/v1/persons/${initialEgo}/tree?depth=3&lang=en`)
-          .then((r) => r.json())
-          .then((data) => {
-            // DEBUG
-            console.log(
-              "[API] nodes: ",
-              data.nodes?.length || 0,
-              "edges:",
-              data.edges?.length || 0,
-              data
+        async function loadAndRender(egoId) {
+          loading = true;
+          try {
+            // keep URL in sync (no reload)
+            const url = new URL(window.location.href);
+            url.searchParams.set("eid", egoId);
+            window.history.replaceState({}, "", url);
+
+            const resp = await fetch(
+              `${api}/api/v1/persons/${egoId}/tree?depth=3&lang=en`
             );
+            const data = await resp.json();
+
             if (!data.nodes || !data.nodes.length) {
               container.innerHTML =
                 "<div style='padding:20px;color:#a00'>No nodes.</div>";
               return;
             }
+
             fullData = {
               nodes: data.nodes,
               edges: data.edges || [],
               idMap: byId(data.nodes),
             };
             adj = buildAdj(fullData);
-            currentLayout = layoutFiveTier(
-              fullData,
-              adj,
-              data.root || initialEgo
-            );
+            currentLayout = layoutFiveTier(fullData, adj, data.root || egoId);
 
-            //DEBUG
-            console.log(
-              "[LAYOUT] visible nodes:",
-              currentLayout.explicitIds.size,
-              "edges:",
-              currentLayout.edges.length
-            );
-
-            // Keep Sigma in sync (invisible graph used for camera / extents)
+            // sync invisible Sigma graph & camera
             syncGraph(currentLayout, fullData.idMap);
             centerCamera(currentLayout);
 
-            // requestAnimationFrame(() => centerCamera(currentLayout));
-            // // First draw AFTER Sigma renders once (prevents stacked-at-0,0)
-            // requestAnimationFrame(() => refresh(currentLayout, fullData.idMap));
-
-            // Force a render tick, then draw exactly after the first Sigma paint.
-            // This guarantees display coords exist for ALL nodes (including new clusters).
+            // paint
             renderer.refresh();
-            const onFirst = () => {
-              refresh(currentLayout, fullData.idMap);
-              renderer.removeListener("afterRender", onFirst);
-            };
-            renderer.on("afterRender", onFirst);
-          })
-          .catch((err) => {
-            console.error(err);
-            container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
-          });
+            refresh(currentLayout, fullData.idMap);
+          } finally {
+            loading = false;
+          }
+        }
+
+        // INITIAL LOAD
+        loadAndRender(currentRoot).catch((err) => {
+          console.error(err);
+          container.innerHTML = `<div style="padding:20px;color:#a00">Failed to load graph: ${err}</div>`;
+        });
 
         // Reposition overlay every frame Sigma renders (pan/zoom/resize)
         renderer.on("afterRender", () => {
@@ -1041,8 +1086,7 @@
         let isFullscreen = false;
 
         fullscreenBtn.onclick = () => {
-          const graphContainer =
-            document.querySelector("#sigma-container") || document.body;
+          const graphContainer = document.getElementById("graph");
 
           if (!isFullscreen) {
             if (graphContainer.requestFullscreen)
@@ -1059,6 +1103,42 @@
             isFullscreen = false;
           }
         };
+
+        // ----- Floating controls inside fullscreen -----
+        const fsControls = document.getElementById("fsControls");
+        const fsResetBtn = document.getElementById("fs-reset");
+        const fsFitBtn = document.getElementById("fs-fit");
+        const fsExitBtn = document.getElementById("fs-exit");
+
+        // Reuse the same actions
+        fsResetBtn.onclick = () =>
+          renderer.getCamera().animatedReset({ duration: 300 });
+        fsFitBtn.onclick = () => {
+          if (currentLayout) centerCamera(currentLayout);
+        };
+        fsExitBtn.onclick = () => {
+          if (document.exitFullscreen) document.exitFullscreen();
+          else if (document.webkitExitFullscreen)
+            document.webkitExitFullscreen();
+        };
+
+        // Show controls only when #graph is fullscreen
+        function syncFsControlsVisibility() {
+          const inFS =
+            document.fullscreenElement === graphContainer ||
+            document.webkitFullscreenElement === graphContainer;
+          fsControls.classList.toggle("hidden", !inFS);
+        }
+
+        // When entering/leaving fullscreen (ESC, button, etc.)
+        document.addEventListener("fullscreenchange", syncFsControlsVisibility);
+        document.addEventListener(
+          "webkitfullscreenchange",
+          syncFsControlsVisibility
+        );
+
+        // Also call it once in case we enter FS immediately
+        syncFsControlsVisibility();
 
         // Exit handler (so if user presses ESC, button resets)
         document.addEventListener("fullscreenchange", () => {

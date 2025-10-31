@@ -1,22 +1,27 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowRight, Brain, BookText, ShieldCheck, Globe, Lightbulb, Settings, Shield, Zap, Users, CheckCircle, Menu, X, FileText, Sparkles } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import LanguageToggle from '../../components/LanguageToggle';
 
 export default function LandingPage() {
   const { t, language } = useLanguage();
+  const router = useRouter();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<'citizens' | 'residents' | null>(null);
+  const [unifiedId, setUnifiedId] = useState('');
 
-  const handleProfileSelection = (profileType: 'citizens' | 'residents') => {
-    setSelectedProfile(profileType);
+  const handleGenerateTree = () => {
+    if (!selectedProfile || !unifiedId.trim()) return;
+
     // Store profile selection
-    localStorage.setItem('profileType', profileType);
-    // Redirect to Streamlit app
-    window.location.href = 'http://localhost:8501';
+    localStorage.setItem('profileType', selectedProfile);
+
+    // Navigate to tree visualization page
+    router.push(`/tree/${unifiedId}?type=${selectedProfile}`);
   };
 
 
@@ -752,12 +757,34 @@ export default function LandingPage() {
               </button>
             </div>
 
+            {/* Unified ID Input */}
+            {selectedProfile && (
+              <div className="mb-6">
+                <label htmlFor="unifiedId" className="block text-sm font-medium text-neutral-700 mb-2">
+                  Unified ID
+                </label>
+                <input
+                  type="text"
+                  id="unifiedId"
+                  value={unifiedId}
+                  onChange={(e) => setUnifiedId(e.target.value)}
+                  placeholder="Enter Unified ID (e.g., P1968702237)"
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleGenerateTree();
+                    }
+                  }}
+                />
+              </div>
+            )}
+
             <button
-              onClick={() => selectedProfile && handleProfileSelection(selectedProfile)}
-              disabled={!selectedProfile}
+              onClick={handleGenerateTree}
+              disabled={!selectedProfile || !unifiedId.trim()}
               className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold transition-colors"
             >
-              {t('profile.continue')}
+              Generate Family Tree
             </button>
 
             <p className="text-xs text-neutral-500 text-center mt-4">

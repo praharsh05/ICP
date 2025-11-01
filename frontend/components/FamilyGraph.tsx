@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useLayoutEffect } from "react";
 
 interface FamilyGraphProps {
   treeData: any;
   personId: string;
+  onPersonSelect?: (personId: string) => void;
+  onNodeClick?: (nodeId: string) => void;
 }
 
 // ============================================================================
@@ -305,16 +307,46 @@ function layoutFiveTier(
   return { coords, explicitIds: explicit, edges };
 }
 
+function waitForSize(el: HTMLElement, timeout = 5000) {
+  return new Promise<void>((resolve, reject) => {
+    const ok = () => el.clientWidth > 0 && el.clientHeight > 0;
+    if (ok()) return resolve();
+
+    const ro = new ResizeObserver(() => {
+      if (ok()) {
+        ro.disconnect();
+        resolve();
+      }
+    });
+    ro.observe(el);
+
+    const t = setTimeout(() => {
+      ro.disconnect();
+      reject(new Error("Timed out waiting for container size"));
+    }, timeout);
+  });
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
+export default function FamilyGraph({
+  treeData,
+  personId,
+  onPersonSelect,
+  onNodeClick,
+}: FamilyGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [currentRoot, setCurrentRoot] = useState(personId);
   const [loading, setLoading] = useState(false);
+
+  //Sync external personId changes with internal state
+  useEffect(() => {
+    setCurrentRoot(personId);
+  }, [personId]);
 
   // Cluster IDs
   const ID_INLAWS = "__cluster_inlaws__";
@@ -327,18 +359,22 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
   const GAP = 3.2;
   const Y = { GP: -3.6, P: -1.8, MID: 0, C: 1.8, GC: 3.6 };
 
-  useEffect(() => {
-    if (!containerRef.current || !treeData) return;
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
 
-    const checkReady = () => {
-      if (containerRef.current && containerRef.current.offsetWidth > 0) {
-        setIsReady(true);
-      } else {
-        setTimeout(checkReady, 100);
-      }
+    const markIfReady = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) setIsReady(true);
     };
-    checkReady();
-  }, [treeData]);
+
+    const ro = new ResizeObserver(markIfReady);
+    ro.observe(el);
+    // run once immediately
+    markIfReady();
+
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || !treeData || !isReady) return;
@@ -408,6 +444,12 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
         wrapper.appendChild(graphContainer);
         container.appendChild(wrapper);
 
+        // ... after you append graphContainer to the DOM:
+        await waitForSize(graphContainer).catch(() => {
+          // As a fallback, don't crash the app—just keep going; Sigma can still mount
+          // or you can show a gentle message but do not return early
+          console.warn("Container took too long to size; proceeding anyway.");
+        });
         // Create graph
         const graph = new Graph({ multi: false, allowSelfLoops: false });
 
@@ -442,13 +484,13 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
         });
 
         // Wait for container dimensions
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // await new Promise((resolve) => setTimeout(resolve, 50));
 
-        if (!graphContainer.clientWidth || !graphContainer.clientHeight) {
-          console.warn("Graph container not ready");
-          setError("Graph container not ready. Please refresh the page.");
-          return;
-        }
+        // if (!graphContainer.clientWidth || !graphContainer.clientHeight) {
+        //   console.warn("Graph container not ready");
+        //   setError("Graph container not ready. Please refresh the page.");
+        //   return;
+        // }
 
         // Render sigma
         const renderer = new Sigma(graph, graphContainer, {
@@ -580,8 +622,23 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
             el.onclick = async (ev: MouseEvent) => {
               ev.preventDefault();
               ev.stopPropagation();
-              if (loading || id === currentRoot || isCluster) return;
+              if (loading || isCluster) return;
 
+              // 🔥 NEW: If clicking same person, just notify parent to update details
+              if (id === currentRoot) {
+                if (onNodeClick) {
+                  onNodeClick(id);
+                }
+                return;
+              }
+
+              // 🔥 NEW: If parent provides navigation callback, use it
+              if (onPersonSelect) {
+                onPersonSelect(id);
+                return;
+              }
+
+              // 🔥 FALLBACK: Self-contained behavior (original logic)
               setLoading(true);
               setCurrentRoot(id);
 
@@ -847,6 +904,8 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
     GAP,
     Y,
     loading,
+    onPersonSelect,
+    onNodeClick,
   ]);
 
   if (error) {
@@ -862,5 +921,10 @@ export default function FamilyGraph({ treeData, personId }: FamilyGraphProps) {
     );
   }
 
-  return <div ref={containerRef} className="w-full h-full relative" />;
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full min-h-[480px] relative"
+    />
+  );
 }

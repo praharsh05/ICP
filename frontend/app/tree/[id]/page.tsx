@@ -11,22 +11,24 @@ export default function TreePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const personId = params.id as string;
-  const profileType = searchParams.get('type') || 'citizens';
-
+  const profileType = (searchParams.get('type') || 'citizens') as 'citizens' | 'residents';
   const [treeData, setTreeData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // NEW: State for tracking current root and selected node
+  const [currentPersonId, setCurrentPersonId] = useState(personId);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
 
   useEffect(() => {
     const fetchTreeData = async () => {
       try {
         setLoading(true);
         setError(null);
-
-        // API URL from backend
+        
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const response = await fetch(
-          `${apiUrl}/api/v1/persons/${personId}/tree?depth=3&lang=en`
+          `${apiUrl}/api/v1/persons/${currentPersonId}/tree?depth=3&lang=en`
         );
 
         if (!response.ok) {
@@ -35,6 +37,11 @@ export default function TreePage() {
 
         const data = await response.json();
         setTreeData(data);
+        
+        // NEW: Set the current person as selected node
+        const currentNode = data.nodes?.find((n: any) => n.id === currentPersonId);
+        setSelectedNode(currentNode || data.nodes?.[0]);
+        
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
@@ -42,10 +49,27 @@ export default function TreePage() {
       }
     };
 
-    if (personId) {
+    if (currentPersonId) {
       fetchTreeData();
     }
-  }, [personId]);
+  }, [currentPersonId]); // NEW: Depend on currentPersonId instead of personId
+
+  // NEW: Handler for when user clicks a card to navigate to new person
+  const handlePersonSelect = (newPersonId: string) => {
+    // Update URL without page reload
+    router.push(`/tree/${newPersonId}?type=${profileType}`, { scroll: false });
+    
+    // Update state to trigger data fetch
+    setCurrentPersonId(newPersonId);
+  };
+
+  // NEW: Handler for when user clicks a card just to view details
+  const handleNodeClick = (nodeId: string) => {
+    const node = treeData?.nodes?.find((n: any) => n.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -60,11 +84,17 @@ export default function TreePage() {
               <ArrowLeft className="w-5 h-5" />
               <span className="font-medium">Back</span>
             </button>
-
-            <h1 className="text-xl font-semibold text-[#DAA520]">
-              Family Tree
-            </h1>
-
+            
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-semibold text-[#DAA520]">
+                Family Tree
+              </h1>
+              {/* NEW: Show current person ID */}
+              <span className="text-sm text-neutral-500">
+                ({currentPersonId})
+              </span>
+            </div>
+            
             <div className="w-24"></div> {/* Spacer for center alignment */}
           </div>
         </div>
@@ -93,18 +123,25 @@ export default function TreePage() {
           </div>
         ) : (
           <>
-
-          {/* Family Details Section - 25% */}
-            <div className="flex-[1] overflow-y-auto">
-              <FamilyDetails treeData={treeData} />
+            {/* Family Details Section - 25% */}
+            <div className="flex-[1] overflow-y-auto bg-neutral-50">
+              <FamilyDetails 
+                treeData={treeData}
+                selectedNode={selectedNode}
+                personId={currentPersonId}
+                profileType={profileType}
+              />
             </div>
-            
+
             {/* Graph Section - 75% */}
-            <div className="flex-[3] border-r border-neutral-200">
-              <FamilyGraph treeData={treeData} personId={personId} />
+            <div className="flex-[3] border-l border-neutral-200 relative" style={{ minHeight: '600px' }}>
+              <FamilyGraph 
+                treeData={treeData} 
+                personId={currentPersonId}
+                onPersonSelect={handlePersonSelect}
+                onNodeClick={handleNodeClick}
+              />
             </div>
-
-            
           </>
         )}
       </main>

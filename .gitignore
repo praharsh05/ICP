@@ -140,9 +140,13 @@ vite.config.ts.timestamp-*
 
 # EGO cache
 ego3_cache_json
-*.json
 kinship
 neo4j_exports
 warehouse
 .DS_Store
 __pycache__
+
+# Ignore JSON files except package files
+*.json
+!package.json
+!package-lock.json

@@ -1,0 +1,486 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
+/* Droid Arabic Kufi Font for ICP */
+@font-face {
+  font-family: 'Droid Arabic Kufi';
+  src: url('/Droid Arabic Kufi Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  /* Apply to Arabic Unicode ranges */
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* Always include Droid Arabic Kufi for Arabic characters, even in English UI */
+    font-family: 'Droid Arabic Kufi', 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: 'opsz' 32;
+    direction: ltr;
+  }
+
+  /* Arabic Language Support - Full RTL layout */
+  html[lang="ar"] {
+    font-family: 'Droid Arabic Kufi', 'Noto Sans Arabic', system-ui, sans-serif;
+    direction: rtl;
+  }
+
+  [dir="rtl"] {
+    direction: rtl;
+    font-family: 'Droid Arabic Kufi', 'Noto Sans Arabic', system-ui, sans-serif;
+  }
+
+  /* Optimize Arabic font rendering */
+  [lang="ar"], [dir="rtl"] {
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900;
+  }
+
+  /* Arabic text utilities */
+  .arabic-text {
+    font-family: 'Droid Arabic Kufi', 'Noto Sans Arabic', system-ui, sans-serif;
+    direction: rtl;
+    text-align: right;
+  }
+
+  /* RTL Layout adjustments - disabled for now to prevent layout breaking */
+  /* [dir="rtl"] .flex {
+    flex-direction: row-reverse;
+  } */
+
+  [dir="rtl"] .justify-start {
+    justify-content: flex-end;
+  }
+
+  [dir="rtl"] .justify-end {
+    justify-content: flex-start;
+  }
+
+  [dir="rtl"] .text-left {
+    text-align: right;
+  }
+
+  [dir="rtl"] .text-right {
+    text-align: left;
+  }
+}
+
+@layer utilities {
+  /* Text truncation utilities */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  /* Custom breakpoint for extra small screens */
+  @media (min-width: 380px) {
+    .xs\:inline {
+      display: inline;
+    }
+
+    .xs\:hidden {
+      display: none;
+    }
+  }
+}
+
+@layer components {
+  /* ICP Professional Button Styles */
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 shadow-soft hover:shadow-medium;
+  }
+
+  .btn-secondary {
+    @apply bg-white hover:bg-neutral-50 text-neutral-700 font-medium py-2.5 px-4 rounded-lg border border-neutral-200 transition-all duration-200 shadow-soft hover:shadow-medium;
+  }
+
+  .btn-ghost {
+    @apply hover:bg-neutral-100 text-neutral-600 hover:text-neutral-900 font-medium py-2.5 px-4 rounded-lg transition-all duration-200;
+  }
+
+  .btn-accent {
+    @apply bg-accent-500 hover:bg-accent-600 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 shadow-soft hover:shadow-medium;
+  }
+
+  /* ICP Professional Card Styles */
+  .card {
+    @apply bg-white rounded-xl border border-neutral-200/60 shadow-soft p-6 backdrop-blur-sm;
+  }
+
+  .card-elevated {
+    @apply bg-white rounded-xl shadow-medium hover:shadow-strong p-6 transition-all duration-200 backdrop-blur-sm;
+  }
+
+  .card-accent {
+    @apply bg-gradient-to-br from-accent-50 to-primary-50 rounded-xl border border-accent-200/60 shadow-soft p-6;
+  }
+
+  /* Professional Input Styles */
+  .input {
+    @apply w-full px-4 py-3 border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200 shadow-soft text-neutral-900 placeholder-neutral-400;
+  }
+
+  .input-search {
+    @apply w-full px-4 py-3 pl-10 border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200 shadow-soft;
+  }
+
+  /* Professional Layout Components */
+  .sidebar {
+    @apply bg-white border-r border-neutral-200/60 h-full min-h-screen;
+  }
+
+  .main-content {
+    @apply bg-neutral-50/50 flex-1 h-full min-h-screen;
+  }
+
+  .header-professional {
+    @apply bg-white border-b border-neutral-200/60 sticky top-0 z-50 backdrop-blur-lg bg-white/95;
+  }
+
+  /* Arabic Support */
+  .text-arabic {
+    @apply font-arabic;
+    direction: rtl;
+    text-align: right;
+  }
+
+  /* Professional Spacing */
+  .section-spacing {
+    @apply py-8 px-6;
+  }
+
+  .content-max-width {
+    @apply max-w-7xl mx-auto;
+  }
+
+  /* Smooth Animations */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.6s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradientShift 8s ease infinite;
+  }
+
+  /* Landing Page Specific */
+  .hero-gradient {
+    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 25%, #eff6ff 50%, #f0f9ff 75%, #f8fafc 100%);
+  }
+
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-lg border border-white/20 shadow-medium;
+  }
+
+  .feature-card {
+    @apply bg-white p-8 rounded-2xl border border-neutral-200 hover:border-neutral-300 hover:shadow-lg transition-all duration-300 hover:-translate-y-1;
+  }
+
+  .testimonial-card {
+    @apply bg-white p-8 rounded-2xl shadow-sm border border-neutral-200 hover:shadow-medium transition-all duration-300;
+  }
+
+  .cta-gradient {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  }
+
+  .floating-element {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .floating-element-delayed {
+    animation: float 6s ease-in-out infinite;
+    animation-delay: -3s;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Custom Scrollbar */
+.scrollbar-custom {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d4 transparent;
+}
+
+.scrollbar-custom::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-custom::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-custom::-webkit-scrollbar-thumb {
+  background-color: #d4d4d4;
+  border-radius: 3px;
+}
+
+.scrollbar-custom::-webkit-scrollbar-thumb:hover {
+  background-color: #a3a3a3;
+}
+
+/* Audio Player Slider Styles */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  .input {
+    @apply text-base min-h-[44px]; /* Prevents zoom on iOS and ensures touch target */
+  }
+
+  .input-search {
+    @apply text-base min-h-[44px]; /* Prevents zoom on iOS and ensures touch target */
+  }
+
+  /* Better mobile scrolling */
+  .scrollbar-custom {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile chat bubbles */
+  .prose {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  /* Better mobile button spacing */
+  .btn-primary {
+    @apply min-h-[44px] px-4; /* iOS recommended touch target */
+  }
+
+  .btn-secondary {
+    @apply min-h-[44px] px-4; /* iOS recommended touch target */
+  }
+
+  .btn-ghost {
+    @apply min-h-[44px] px-3; /* iOS recommended touch target */
+  }
+
+  .btn-accent {
+    @apply min-h-[44px] px-4; /* iOS recommended touch target */
+  }
+
+  /* Mobile card spacing */
+  .card {
+    @apply p-4; /* Reduced padding on mobile */
+  }
+
+  .card-elevated {
+    @apply p-4; /* Reduced padding on mobile */
+  }
+
+  /* Mobile scrollbar - thinner for mobile */
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  /* Mobile text improvements */
+  .content-max-width {
+    @apply px-4; /* Consistent mobile padding */
+  }
+}
+
+/* iPhone 14+ specific optimizations */
+@media (max-width: 430px) {
+  .card {
+    @apply p-4; /* Reduced padding on very small screens */
+  }
+
+  .card-elevated {
+    @apply p-4; /* Reduced padding on very small screens */
+  }
+
+  /* Ensure text is readable on small screens */
+  h1 {
+    @apply text-xl;
+  }
+
+  h2 {
+    @apply text-lg;
+  }
+
+  h3 {
+    @apply text-base;
+  }
+}
+
+/* Card popover using CSS ::after */
+.card::after {
+  content: attr(data-pop);
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 6px);
+  opacity: 0;
+  pointer-events: none;
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre-line;
+  max-width: 280px;
+  z-index: 9999;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.card:hover::after {
+  opacity: 1;
+  transform: translate(-50%, 2px);
+}
+
+.card[data-pop=""]::after {
+  display: none;
+}
+
+/* Avatar styling */
+.avatar {
+  flex: 0 0 28px;
+  height: 28px;
+  width: 28px;
+  border-radius: 6px;
+  background: #f2e7d7;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/* Fullscreen background fix */
+#sigma-container:fullscreen,
+#sigma-container:-webkit-full-screen {
+  background: #f7f4f1 !important;
+}
+
+#sigma-container:fullscreen canvas,
+#sigma-container:-webkit-full-screen canvas {
+  background: #f7f4f1 !important;
+}

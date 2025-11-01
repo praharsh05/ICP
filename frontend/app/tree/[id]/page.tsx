@@ -93,15 +93,18 @@ export default function TreePage() {
           </div>
         ) : (
           <>
+
+          {/* Family Details Section - 25% */}
+            <div className="flex-[1] overflow-y-auto">
+              <FamilyDetails treeData={treeData} />
+            </div>
+            
             {/* Graph Section - 75% */}
             <div className="flex-[3] border-r border-neutral-200">
               <FamilyGraph treeData={treeData} personId={personId} />
             </div>
 
-            {/* Family Details Section - 25% */}
-            <div className="flex-[1] overflow-y-auto">
-              <FamilyDetails treeData={treeData} />
-            </div>
+            
           </>
         )}
       </main>

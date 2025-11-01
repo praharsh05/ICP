@@ -428,3 +428,59 @@
     @apply text-base;
   }
 }
+
+/* Card popover using CSS ::after */
+.card::after {
+  content: attr(data-pop);
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 6px);
+  opacity: 0;
+  pointer-events: none;
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre-line;
+  max-width: 280px;
+  z-index: 9999;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.card:hover::after {
+  opacity: 1;
+  transform: translate(-50%, 2px);
+}
+
+.card[data-pop=""]::after {
+  display: none;
+}
+
+/* Avatar styling */
+.avatar {
+  flex: 0 0 28px;
+  height: 28px;
+  width: 28px;
+  border-radius: 6px;
+  background: #f2e7d7;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/* Fullscreen background fix */
+#sigma-container:fullscreen,
+#sigma-container:-webkit-full-screen {
+  background: #f7f4f1 !important;
+}
+
+#sigma-container:fullscreen canvas,
+#sigma-container:-webkit-full-screen canvas {
+  background: #f7f4f1 !important;
+}

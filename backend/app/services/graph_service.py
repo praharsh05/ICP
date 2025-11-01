@@ -19,7 +19,7 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
     cypher = f"""
     MATCH (ego:Person {{spm_person_no: $id}})
 
-    // ----- collect neighborhood nodes -----
+    // 5-tier nodes
     OPTIONAL MATCH (ego)-[:SPOUSE_OF]-(sp:Person)
     OPTIONAL MATCH (ego)-[:CHILD_OF*1..{up_hops}]->(anc:Person)          // parents, grandparents
     OPTIONAL MATCH (ego)<-[:CHILD_OF*1..{down_hops}]-(desc:Person)       // children, grandchildren
@@ -33,12 +33,11 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
          collect(DISTINCT sib)  AS siblings
 
     WITH ego,
-         [ego] + spouses + ancestors + descendants + siblings AS ns
+            [ego] + spouses + ancestors + descendants + siblings AS ns
     UNWIND ns AS n
     WITH ego, collect(DISTINCT n) AS nodes
 
-    // ----- build directed edges only among 'nodes' -----
-
+    // directed edges among nodes
     // child -> parent
     UNWIND nodes AS c
     MATCH (c)-[:CHILD_OF]->(p)
@@ -50,21 +49,92 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
            type: 'CHILD_OF'
          }}) AS child_edges
 
-    // spouses (dedup by internal id so we don't return both directions)
     UNWIND nodes AS a
     MATCH (a)-[:SPOUSE_OF]-(b)
-    WHERE b IN nodes AND id(a) < id(b)
+    WHERE b IN nodes AND a.spm_person_no < b.spm_person_no   // <- change here
     WITH ego, nodes, child_edges,
-         collect(DISTINCT {{
-           source: a.spm_person_no,
-           target: b.spm_person_no,
-           type: 'SPOUSE_OF'
-         }}) AS spouse_edges
+        collect(DISTINCT {{
+            source: a.spm_person_no,
+            target: b.spm_person_no,
+            type: 'SPOUSE_OF'
+        }}) AS spouse_edges
 
-    RETURN
-      ego,
-      nodes,
-      child_edges + spouse_edges AS edges
+    WITH ego, nodes, (child_edges + spouse_edges) AS edges
+
+    // resolve father/mother if present
+    OPTIONAL MATCH (ego)-[:CHILD_OF]->(fa:Person {{sex:'M'}})
+    WHERE fa IN nodes
+    OPTIONAL MATCH (ego)-[:CHILD_OF]->(mo:Person {{sex:'F'}})
+    WHERE mo IN nodes
+    WITH ego, nodes, edges, head(collect(DISTINCT fa)) AS father, head(collect(DISTINCT mo)) AS mother
+
+    // compute kin (gender-specific where possible)
+    UNWIND nodes AS n
+    WITH ego, father, mother, n, edges
+    WITH ego, father, mother, n, edges,
+         CASE
+           WHEN n = ego THEN 'self'
+
+           WHEN (n)-[:SPOUSE_OF]-(ego) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'husband'
+               WHEN 'F' THEN 'wife'
+               ELSE 'spouse'
+             END
+
+           WHEN (ego)-[:CHILD_OF]->(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'father'
+               WHEN 'F' THEN 'mother'
+               ELSE 'parent'
+             END
+
+           WHEN (n)-[:CHILD_OF]->(ego) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'son'
+               WHEN 'F' THEN 'daughter'
+               ELSE 'child'
+             END
+
+           WHEN (ego)-[:CHILD_OF]->()<-[:CHILD_OF]-(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'brother'
+               WHEN 'F' THEN 'sister'
+               ELSE 'sibling'
+             END
+
+           WHEN father IS NOT NULL AND (father)-[:CHILD_OF]->(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'paternal grandfather'
+               WHEN 'F' THEN 'paternal grandmother'
+               ELSE 'paternal grandparent'
+             END
+
+           WHEN mother IS NOT NULL AND (mother)-[:CHILD_OF]->(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'maternal grandfather'
+               WHEN 'F' THEN 'maternal grandmother'
+               ELSE 'maternal grandparent'
+             END
+
+           WHEN (n)-[:CHILD_OF]->()<-[:CHILD_OF]-(ego) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'grandson'
+               WHEN 'F' THEN 'granddaughter'
+               ELSE 'grandchild'
+             END
+
+           ELSE ''
+         END AS kin
+
+    WITH ego, edges, collect(DISTINCT {{
+      id: n.spm_person_no,
+      label: coalesce(n.full_name, n.name, n.spm_person_no),
+      sex: n.sex,
+      kin: kin
+    }}) AS node_maps
+
+    RETURN ego, node_maps AS nodes, edges
     """
 
     rows = neo4j_client.run(cypher, {"id": spm_person_no})
@@ -72,39 +142,10 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
         return {"root": spm_person_no, "nodes": [], "edges": []}
 
     rec = rows[0]
-    ego = rec["ego"]
-    nodes = rec["nodes"] or []
-    edges = rec["edges"] or []
-
-    # Build UI-friendly node objects
-    unique = {}
-    def add_node(n, kin=None):
-        if not n:
-            return
-        pid = n.get("spm_person_no")
-        if not pid:
-            return
-        if pid not in unique:
-            unique[pid] = {
-                "id": pid,
-                "label": n.get("full_name") or n.get("name") or pid,
-                "sex": n.get("sex"),
-                "kin": kin or ("self" if ego and pid == ego.get("spm_person_no") else ""),
-            }
-        elif kin and not unique[pid].get("kin"):
-            unique[pid]["kin"] = kin
-
-    for n in nodes:
-        # mark ego explicitly
-        if ego and n.get("spm_person_no") == ego.get("spm_person_no"):
-            add_node(n, kin="self")
-        else:
-            add_node(n)
-
     return {
         "root": spm_person_no,
-        "nodes": list(unique.values()),
-        "edges": edges,  # already directed & deduped by Cypher above
+        "nodes": rec["nodes"] or [],
+        "edges": rec["edges"] or [],
     }
 
 def lowest_common_ancestors(p1: str, p2: str, limit: int = 5):

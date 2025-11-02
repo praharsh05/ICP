@@ -8,19 +8,19 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Professional Blue Theme for Government Applications
+        // Professional Golden Theme for Government Applications
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
-          950: '#172554',
+          50: '#FEF9E7',
+          100: '#FDF5D7',
+          200: '#FBEDC0',
+          300: '#F8E5A8',
+          400: '#F0D675',
+          500: '#DAA520',
+          600: '#C89519',
+          700: '#A57915',
+          800: '#835E11',
+          900: '#62470D',
+          950: '#3D2C08',
         },
         secondary: {
           50: '#f8fafc',
@@ -35,16 +35,16 @@ module.exports = {
           900: '#0f172a',
         },
         accent: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
+          50: '#FEF9E7',
+          100: '#FDF5D7',
+          200: '#FBEDC0',
+          300: '#F8E5A8',
+          400: '#F0D675',
+          500: '#DAA520',
+          600: '#C89519',
+          700: '#A57915',
+          800: '#835E11',
+          900: '#62470D',
         },
         neutral: {
           50: '#fafafa',

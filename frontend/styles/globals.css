@@ -204,7 +204,7 @@
 
   /* Landing Page Specific */
   .hero-gradient {
-    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 25%, #eff6ff 50%, #f0f9ff 75%, #f8fafc 100%);
+    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 25%, #FEF9E7 50%, #FDF5D7 75%, #f8fafc 100%);
   }
 
   .glass-card {
@@ -220,7 +220,7 @@
   }
 
   .cta-gradient {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    background: linear-gradient(135deg, #DAA520 0%, #A57915 100%);
   }
 
   .floating-element {
@@ -331,7 +331,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #2563eb;
+  background: #DAA520;
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -341,7 +341,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #2563eb;
+  background: #DAA520;
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);

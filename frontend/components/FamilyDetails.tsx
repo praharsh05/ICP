@@ -129,37 +129,39 @@ export default function FamilyDetails({
     }));
   };
 
-  const getAvatarUrl = (sex?: string) => {
+  /**
+   * Get avatar URL based on person type and gender
+   * Citizens use one set of icons, residents use another
+   */
+  const getAvatarUrl = (person: Person) => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    if (String(sex).toUpperCase() === 'F') {
-      return `${apiUrl}/static/img/female_icon.jpg`;
+    const isCitizen = person.person_type === 'citizen' || 
+                      (person.person_type === undefined && person.national_id);
+    const isFemale = String(person.sex).toUpperCase() === 'F';
+    
+    // For now, using same icons but structure allows for different resident icons
+    // You can replace these paths with different icons for residents
+    if (isCitizen) {
+      return isFemale 
+        ? `${apiUrl}/static/img/citizen/female_icon.jpg`
+        : `${apiUrl}/static/img/citizen/male_icon.jpg`;
+    } else {
+      // Resident icons (currently same, but you can change these paths)
+      return isFemale 
+        ? `${apiUrl}/static/img/resident/female_icon.jpg`  // Can be resident_female_icon.jpg
+        : `${apiUrl}/static/img/resident/male_icon.jpg`;   // Can be resident_male_icon.jpg
     }
-    return `${apiUrl}/static/img/male_icon.jpg`;
   };
 
   /**
    * Render a person card with conditional metadata based on person_type
-   * 
-   * Citizens show:
-   * - Full name
-   * - Gender
-   * - Kin relationship
-   * - Date of birth
-   * - National ID (if present)
-   * - Passport (if present)
-   * 
-   * Residents show:
-   * - Full name
-   * - Gender
-   * - Kin relationship
-   * - Date of birth
+   * Field order: Full name → Person type → Kin → DOB → National ID (citizens only)
    */
   const renderPersonCard = (person: Person) => {
     const fullName = person.full_name || person.name || person.label || person.id;
     const kin = person.kin || '';
     
-    // Determine if this person is a citizen based on person_type
-    // Fallback to checking if national_id exists
+    // Determine if this person is a citizen
     const isCitizen = person.person_type === 'citizen' || 
                       (person.person_type === undefined && person.national_id);
 
@@ -172,74 +174,73 @@ export default function FamilyDetails({
           {/* Avatar */}
           <div className="w-12 h-12 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
             <img
-              src={getAvatarUrl(person.sex)}
+              src={getAvatarUrl(person)}
               alt={fullName}
               className="w-full h-full object-cover"
             />
           </div>
 
-          {/* Details */}
+          {/* Details - Specific order */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-semibold text-neutral-900 truncate">
-                {fullName}
-              </h4>
-              {/* Person type badge */}
-              {person.person_type && (
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                  person.person_type === 'citizen' 
-                    ? 'bg-blue-100 text-blue-700' 
-                    : 'bg-green-100 text-green-700'
-                }`}>
-                  {person.person_type === 'citizen' ? 'Citizen' : 'Resident'}
-                </span>
-              )}
-            </div>
+            {/* 1. FULL NAME */}
+            <h4 className="font-semibold text-neutral-900 text-sm mb-2">
+              {fullName}
+            </h4>
 
-            {/* Info items - Always shown fields */}
-            <div className="space-y-1.5 text-xs text-neutral-600">
-              {/* Gender - Always shown */}
+            {/* Info items in specific order */}
+            <div className="space-y-2 text-xs text-neutral-600">
+              
+              {/* 2. PERSON TYPE */}
+              {person.person_type && (
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded inline-block ${
+                    person.person_type === 'citizen' 
+                      ? 'bg-[#DAA520] text-white' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {person.person_type === 'citizen' ? 'Citizen' : 'Resident'}
+                  </span>
+                </div>
+              )}
+              
+              {/* 3. KIN RELATIONSHIP */}
+              {kin && (
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-500 font-medium">Relation:</span>
+                  <span className="capitalize font-medium text-neutral-700">{kin}</span>
+                </div>
+              )}
+              
+              {/* 4. DATE OF BIRTH */}
+              {person.date_of_birth && (
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-500">DOB:</span>
+                  <span className="font-mono">{person.date_of_birth}</span>
+                </div>
+              )}
+
+              {/* 5. NATIONAL ID - Citizens only */}
+              {isCitizen && person.national_id && (
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-500">National ID:</span>
+                  <span className="font-mono">{person.national_id}</span>
+                </div>
+              )}
+              
+              {/* ADDITIONAL: Gender */}
               {person.sex && (
                 <div className="flex items-center gap-2">
-                  <User className="w-3.5 h-3.5 text-neutral-400" />
+                  <span className="text-neutral-500">Gender:</span>
                   <span>{person.sex === 'F' ? 'Female' : 'Male'}</span>
                 </div>
               )}
               
-              {/* Date of Birth - Always shown */}
-              {person.date_of_birth && (
+              {/* ADDITIONAL: Passport (if present, for citizens) */}
+              {isCitizen && person.passport && (
                 <div className="flex items-center gap-2">
-                  <span>📅</span>
-                  <span>{person.date_of_birth}</span>
+                  <span className="text-neutral-500">Passport:</span>
+                  <span className="font-mono">{person.passport}</span>
                 </div>
-              )}
-              
-              {/* Kin Relationship - Always shown */}
-              {kin && (
-                <div className="mt-2 inline-block px-2 py-1 bg-neutral-100 rounded text-xs font-medium text-neutral-700">
-                  {kin}
-                </div>
-              )}
-              
-              {/* CONDITIONAL FIELDS - Only for Citizens */}
-              {isCitizen && (
-                <>
-                  {/* National ID - Citizens only */}
-                  {person.national_id && (
-                    <div className="flex items-center gap-2">
-                      <User className="w-3.5 h-3.5 text-neutral-400" />
-                      <span className="font-mono text-xs">{person.national_id}</span>
-                    </div>
-                  )}
-                  
-                  {/* Passport - Citizens only (if present) */}
-                  {person.passport && (
-                    <div className="flex items-center gap-2">
-                      <span>🛂</span>
-                      <span className="font-mono text-xs">{person.passport}</span>
-                    </div>
-                  )}
-                </>
               )}
             </div>
           </div>
@@ -275,34 +276,34 @@ export default function FamilyDetails({
   const isRootPerson = displayPerson.id === personId;
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
+    <div className="h-full flex flex-col bg-neutral-50">
+      {/* Header - Sticky */}
       <div className="sticky top-0 z-10 bg-white border-b border-neutral-200 px-6 py-4">
         <h3 className="text-lg font-bold text-neutral-900 mb-1">
           Family Details
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm text-neutral-600 truncate">
             {fullName}
           </p>
-          {isRootPerson && (
+          {/* {isRootPerson && (
             <span className="px-2 py-0.5 bg-[#DAA520] text-white text-xs font-semibold rounded">
               ROOT
             </span>
-          )}
+          )} */}
           {displayPerson.person_type && (
             <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
               displayPerson.person_type === 'citizen'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-[#DAA520] text-white'
                 : 'bg-green-100 text-green-700'
             }`}>
-              {displayPerson.person_type === 'citizen' ? 'CITIZEN' : 'RESIDENT'}
+              {displayPerson.person_type === 'citizen' ? 'Citizen' : 'Resident'}
             </span>
           )}
         </div>
       </div>
 
-      {/* Accordion Sections */}
+      {/* Scrollable Accordion Sections */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
         {sections.map((section) => {
           const isExpanded = expandedSections[section.id];

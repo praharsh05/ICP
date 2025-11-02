@@ -406,11 +406,10 @@ export default function FamilyGraph({
           background: white;
         `;
         toolbar.innerHTML = `
-          <div style="font-weight: 600; color: #DAA520;">Family Tree</div>
           <div style="margin-left: auto; display: flex; gap: 8px;">
-            <button id="reset-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;">Reset</button>
-            <button id="fit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fit</button>
-            <button id="fullscreen-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;">Full Screen</button>
+            <button id="reset-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Reset</button>
+            <button id="fit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Fit</button>
+            <button id="fullscreen-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Full Screen</button>
           </div>
         `;
 
@@ -434,9 +433,9 @@ export default function FamilyGraph({
           pointer-events: auto;
         `;
         fsControls.innerHTML = `
-          <button id="fs-reset-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Reset</button>
-          <button id="fs-fit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Fit</button>
-          <button id="fs-exit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Exit</button>
+          <button id="fs-reset-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Reset</button>
+          <button id="fs-fit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Fit</button>
+          <button id="fs-exit-btn" style="background-color: #DAA520; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);">Exit</button>
         `;
         graphContainer.appendChild(fsControls);
 
@@ -482,15 +481,6 @@ export default function FamilyGraph({
             color: "#00000000",
           });
         });
-
-        // Wait for container dimensions
-        // await new Promise((resolve) => setTimeout(resolve, 50));
-
-        // if (!graphContainer.clientWidth || !graphContainer.clientHeight) {
-        //   console.warn("Graph container not ready");
-        //   setError("Graph container not ready. Please refresh the page.");
-        //   return;
-        // }
 
         // Render sigma
         const renderer = new Sigma(graph, graphContainer, {
@@ -557,6 +547,13 @@ export default function FamilyGraph({
             );
             p.setAttribute("stroke-width", "2");
             p.setAttribute("stroke-linecap", "round");
+            
+            // Add dashed stroke for inactive spouse relationships
+            if (e.type === "SPOUSE_OF" && e.relationship_status === "inactive") {
+              p.setAttribute("stroke-dasharray", "5,5");
+              p.setAttribute("opacity", "0.6");
+            }
+            
             svg.appendChild(p);
           });
         };

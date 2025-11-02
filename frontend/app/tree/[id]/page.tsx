@@ -16,7 +16,7 @@ export default function TreePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // NEW: State for tracking current root and selected node
+  // State for tracking current root and selected node
   const [currentPersonId, setCurrentPersonId] = useState(personId);
   const [selectedNode, setSelectedNode] = useState<any>(null);
 
@@ -38,7 +38,7 @@ export default function TreePage() {
         const data = await response.json();
         setTreeData(data);
         
-        // NEW: Set the current person as selected node
+        // Set the current person as selected node
         const currentNode = data.nodes?.find((n: any) => n.id === currentPersonId);
         setSelectedNode(currentNode || data.nodes?.[0]);
         
@@ -52,9 +52,9 @@ export default function TreePage() {
     if (currentPersonId) {
       fetchTreeData();
     }
-  }, [currentPersonId]); // NEW: Depend on currentPersonId instead of personId
+  }, [currentPersonId]);
 
-  // NEW: Handler for when user clicks a card to navigate to new person
+  // Handler for when user clicks a card to navigate to new person
   const handlePersonSelect = (newPersonId: string) => {
     // Update URL without page reload
     router.push(`/tree/${newPersonId}?type=${profileType}`, { scroll: false });
@@ -63,7 +63,7 @@ export default function TreePage() {
     setCurrentPersonId(newPersonId);
   };
 
-  // NEW: Handler for when user clicks a card just to view details
+  // Handler for when user clicks a card just to view details
   const handleNodeClick = (nodeId: string) => {
     const node = treeData?.nodes?.find((n: any) => n.id === nodeId);
     if (node) {
@@ -72,11 +72,11 @@ export default function TreePage() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white border-b border-neutral-200">
-        <div className="max-w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+    <div className="h-screen flex flex-col bg-white">
+      {/* Header - Fixed height */}
+      <header className="sticky top-0 z-50 bg-white border-b border-neutral-200 h-16 flex-shrink-0">
+        <div className="h-full max-w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-full">
             <button
               onClick={() => router.push('/landing')}
               className="flex items-center gap-2 text-neutral-600 hover:text-neutral-900 transition-colors"
@@ -87,12 +87,11 @@ export default function TreePage() {
             
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-[#DAA520]">
-                Family Tree
+                Family Tree of {currentPersonId}
               </h1>
-              {/* NEW: Show current person ID */}
-              <span className="text-sm text-neutral-500">
+              {/* <span className="text-xl font-semibold text-[#DAA520]">
                 ({currentPersonId})
-              </span>
+              </span> */}
             </div>
             
             <div className="w-24"></div> {/* Spacer for center alignment */}
@@ -100,7 +99,7 @@ export default function TreePage() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content - Takes remaining height */}
       <main className="flex-1 flex overflow-hidden">
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
@@ -123,8 +122,13 @@ export default function TreePage() {
           </div>
         ) : (
           <>
-            {/* Family Details Section - 25% */}
-            <div className="flex-[1] overflow-y-auto bg-neutral-50">
+            {/* Family Details Section - 30% width, vertically scrollable */}
+            <div 
+              className="w-[30%] flex-shrink-0 overflow-y-auto bg-neutral-50 border-r border-neutral-200"
+              style={{ 
+                height: 'calc(100vh - 4rem - 3.5rem)' // screen height - header (4rem) - footer (3.5rem)
+              }}
+            >
               <FamilyDetails 
                 treeData={treeData}
                 selectedNode={selectedNode}
@@ -133,8 +137,13 @@ export default function TreePage() {
               />
             </div>
 
-            {/* Graph Section - 75% */}
-            <div className="flex-[3] border-l border-neutral-200 relative" style={{ minHeight: '600px' }}>
+            {/* Graph Section - 70% width, fixed height */}
+            <div 
+              className="w-[70%] flex-shrink-0 relative bg-white"
+              style={{ 
+                height: 'calc(100vh - 4rem - 3.5rem)' // screen height - header (4rem) - footer (3.5rem)
+              }}
+            >
               <FamilyGraph 
                 treeData={treeData} 
                 personId={currentPersonId}
@@ -146,11 +155,11 @@ export default function TreePage() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-neutral-50 border-t border-neutral-200 py-4">
-        <div className="max-w-full px-4 sm:px-6 lg:px-8">
-          <p className="text-center text-sm text-neutral-600">
-            © 2025 Intelligence & Community Platform
+      {/* Footer - Fixed height */}
+      <footer className="bg-neutral-50 border-t border-neutral-200 py-4 flex-shrink-0 h-14">
+        <div className="h-full max-w-full px-4 sm:px-6 lg:px-8 flex items-center">
+          <p className="text-center text-sm text-neutral-600 w-full">
+            © 2025 Xpress Innovation
           </p>
         </div>
       </footer>

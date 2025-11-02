@@ -10,13 +10,13 @@ from pyspark.sql import SparkSession
 
 # ── CONFIG: edit only these paths/options ──────────────────────────────────────
 # or "./citi_record_detail/*.csv"
-CRD_CSV = "./../../data/citi_record_detail.csv"
+CRD_CSV = "./new_data_sc_map/citi_record_detail.csv"
 # or "./citi_record_master/*.csv"
-CRM_CSV = "./../../data/citi_record_master.csv"
+CRM_CSV = "./new_data_sc_map/citi_record_master.csv"
 # the alias CSVs produced by the previous job
-ALIASES_CSV = "./out/citizens_person_alias/*.csv"
+ALIASES_CSV = "./new_data_sc_map/output/citizens_person_alias/*.csv"
 # local output folder for results
-OUTPUT_DIR = "./out/out_links"
+OUTPUT_DIR = "./new_data_sc_map/output/links"
 DELIMITER = ","                                    # source CSV delimiter
 # set False if inputs have no header
 HAS_HEADER = True

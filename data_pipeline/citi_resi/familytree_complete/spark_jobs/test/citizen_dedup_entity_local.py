@@ -9,8 +9,8 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
 # ── CONFIG: edit these paths only ──────────────────────────────────────────────
-INPUT_PATH   = "./../../data/person_master.csv"         # e.g. "./person_master.csv" or "./person_master/*.csv"
-OUTPUT_DIR   = "./out"                       # local folder for outputs
+INPUT_PATH   = "./new_data_sc_map/person_master.csv"         # e.g. "./person_master.csv" or "./person_master/*.csv"
+OUTPUT_DIR   = "./new_data_sc_map/output"                       # local folder for outputs
 DELIMITER    = ","                           # CSV delimiter
 HAS_HEADER   = True                          # set False if no header in source CSV
 INFER_SCHEMA = True                          # set False to read all columns as strings
@@ -53,7 +53,7 @@ def main():
     normalized = person_master \
     .withColumn("name_ar_norm", F.lower(F.trim(F.col("spm_full_aname")))) \
     .withColumn("name_en_norm", F.lower(F.trim(F.col("spm_full_ename")))) \
-    .withColumn("dob_norm", F.to_date(F.col("spm_dob"))) \
+    .withColumn("dob_norm", F.to_date(F.col("spm_dob"), "MM/dd/yyyy")) \
     .withColumn("national_id_norm",
         F.regexp_replace(F.col("spm_national_id"), r"[\s\-]+", "")) \
     .withColumn("gender_norm", F.upper(F.trim(F.col("spm_gender").cast("string"))))

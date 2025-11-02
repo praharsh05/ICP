@@ -153,3 +153,6 @@ __pycache__
 
 #ignore csv
 *.csv
+
+_SUCCESS
+*.crc

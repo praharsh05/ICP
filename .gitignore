@@ -150,3 +150,6 @@ __pycache__
 *.json
 !package.json
 !package-lock.json
+
+#ignore csv
+*.csv

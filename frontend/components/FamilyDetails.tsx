@@ -6,15 +6,14 @@ import { ChevronDown, ChevronUp, User } from 'lucide-react';
 interface Person {
   id: string;
   label?: string;
-  sex?: string;
-  kin?: string;
   full_name?: string;
   name?: string;
-  life_status?: string;
+  sex?: string;
+  kin?: string;
   national_id?: string;
   passport?: string;
   date_of_birth?: string;
-  nationality?: string;
+  person_type?: 'citizen' | 'resident';
 }
 
 interface TreeData {
@@ -25,8 +24,8 @@ interface TreeData {
 
 interface FamilyDetailsProps {
   treeData: TreeData | null;
-  selectedNode?: Person | null;  // NEW: Currently selected person
-  personId: string;              // NEW: Root person ID
+  selectedNode?: Person | null;
+  personId: string;
   profileType: 'citizens' | 'residents';
 }
 
@@ -138,9 +137,31 @@ export default function FamilyDetails({
     return `${apiUrl}/static/img/male_icon.jpg`;
   };
 
+  /**
+   * Render a person card with conditional metadata based on person_type
+   * 
+   * Citizens show:
+   * - Full name
+   * - Gender
+   * - Kin relationship
+   * - Date of birth
+   * - National ID (if present)
+   * - Passport (if present)
+   * 
+   * Residents show:
+   * - Full name
+   * - Gender
+   * - Kin relationship
+   * - Date of birth
+   */
   const renderPersonCard = (person: Person) => {
     const fullName = person.full_name || person.name || person.label || person.id;
     const kin = person.kin || '';
+    
+    // Determine if this person is a citizen based on person_type
+    // Fallback to checking if national_id exists
+    const isCitizen = person.person_type === 'citizen' || 
+                      (person.person_type === undefined && person.national_id);
 
     return (
       <div
@@ -159,46 +180,66 @@ export default function FamilyDetails({
 
           {/* Details */}
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-neutral-900 truncate mb-1">
-              {fullName}
-            </h4>
-
-            {/* Info items */}
-            <div className="space-y-1.5 text-xs text-neutral-600">
-              {person.national_id && (
-                <div className="flex items-center gap-2">
-                  <User className="w-3.5 h-3.5 text-neutral-400" />
-                  <span className="font-mono">{person.national_id}</span>
-                </div>
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="font-semibold text-neutral-900 truncate">
+                {fullName}
+              </h4>
+              {/* Person type badge */}
+              {person.person_type && (
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                  person.person_type === 'citizen' 
+                    ? 'bg-blue-100 text-blue-700' 
+                    : 'bg-green-100 text-green-700'
+                }`}>
+                  {person.person_type === 'citizen' ? 'Citizen' : 'Resident'}
+                </span>
               )}
+            </div>
+
+            {/* Info items - Always shown fields */}
+            <div className="space-y-1.5 text-xs text-neutral-600">
+              {/* Gender - Always shown */}
               {person.sex && (
                 <div className="flex items-center gap-2">
                   <User className="w-3.5 h-3.5 text-neutral-400" />
                   <span>{person.sex === 'F' ? 'Female' : 'Male'}</span>
                 </div>
               )}
+              
+              {/* Date of Birth - Always shown */}
               {person.date_of_birth && (
                 <div className="flex items-center gap-2">
                   <span>📅</span>
                   <span>{person.date_of_birth}</span>
                 </div>
               )}
-              {person.nationality && (
-                <div className="flex items-center gap-2">
-                  <span>🌍</span>
-                  <span>{person.nationality}</span>
-                </div>
-              )}
-              {person.life_status && (
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${person.life_status === 'alive' ? 'bg-green-500' : 'bg-neutral-400'}`}></div>
-                  <span className="capitalize">{person.life_status}</span>
-                </div>
-              )}
+              
+              {/* Kin Relationship - Always shown */}
               {kin && (
                 <div className="mt-2 inline-block px-2 py-1 bg-neutral-100 rounded text-xs font-medium text-neutral-700">
                   {kin}
                 </div>
+              )}
+              
+              {/* CONDITIONAL FIELDS - Only for Citizens */}
+              {isCitizen && (
+                <>
+                  {/* National ID - Citizens only */}
+                  {person.national_id && (
+                    <div className="flex items-center gap-2">
+                      <User className="w-3.5 h-3.5 text-neutral-400" />
+                      <span className="font-mono text-xs">{person.national_id}</span>
+                    </div>
+                  )}
+                  
+                  {/* Passport - Citizens only (if present) */}
+                  {person.passport && (
+                    <div className="flex items-center gap-2">
+                      <span>🛂</span>
+                      <span className="font-mono text-xs">{person.passport}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -249,6 +290,15 @@ export default function FamilyDetails({
               ROOT
             </span>
           )}
+          {displayPerson.person_type && (
+            <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+              displayPerson.person_type === 'citizen'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-green-100 text-green-700'
+            }`}>
+              {displayPerson.person_type === 'citizen' ? 'CITIZEN' : 'RESIDENT'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -266,7 +316,6 @@ export default function FamilyDetails({
                 className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-50 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-lg">{section.icon}</span>
                   <span className="font-semibold text-neutral-900">
                     {section.title}
                   </span>

@@ -1,23 +1,44 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.db.neo4j_client import neo4j_client
 
-def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
+def get_person_tree(
+    spm_person_no: str, 
+    depth: int = 3,
+    person_type: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    5-tier tree for the Sigma UI.
+    5-tier tree for the Sigma UI with optional person_type filtering.
+    
     Includes:
       - ego
       - spouses (1 hop)
       - parents & grandparents (up to 2 hops up)
       - children & grandchildren (up to 2 hops down)
       - siblings (share >=1 parent)
+    
     Emits only directed CHILD_OF (child -> parent) and deduped SPOUSE_OF.
+    
+    Args:
+        spm_person_no: Root person ID
+        depth: Tree depth (capped at 5 tiers: max 2 up, 2 down)
+        person_type: Optional filter - 'citizen' or 'resident'
+        
+    Returns:
+        Dict with root, nodes (with full metadata), and edges
     """
-    # cap to 5 tiers: max 2 up, 2 down
+    # Cap to 5 tiers: max 2 up, 2 down
     up_hops = min(2, max(0, depth - 1))
     down_hops = min(2, max(0, depth - 1))
+    
+    # Build WHERE clause for person_type filter
+    # Only filter if person_type is explicitly provided and valid
+    type_filter = ""
+    if person_type and person_type.lower() in ['citizen', 'resident']:
+        type_filter = f"AND ego.person_type = '{person_type.lower()}'"
 
     cypher = f"""
     MATCH (ego:Person {{spm_person_no: $id}})
+    WHERE 1=1 {type_filter}
 
     // 5-tier nodes
     OPTIONAL MATCH (ego)-[:SPOUSE_OF]-(sp:Person)
@@ -51,7 +72,7 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
 
     UNWIND nodes AS a
     MATCH (a)-[:SPOUSE_OF]-(b)
-    WHERE b IN nodes AND a.spm_person_no < b.spm_person_no   // <- change here
+    WHERE b IN nodes AND a.spm_person_no < b.spm_person_no
     WITH ego, nodes, child_edges,
         collect(DISTINCT {{
             source: a.spm_person_no,
@@ -130,7 +151,12 @@ def get_person_tree(spm_person_no: str, depth: int = 3) -> Dict[str, Any]:
     WITH ego, edges, collect(DISTINCT {{
       id: n.spm_person_no,
       label: coalesce(n.full_name, n.name, n.spm_person_no),
+      full_name: n.full_name,
       sex: n.sex,
+      date_of_birth: toString(n.dob),
+      national_id: n.national_id,
+      passport: n.passport,
+      person_type: n.person_type,
       kin: kin
     }}) AS node_maps
 
@@ -152,6 +178,14 @@ def lowest_common_ancestors(p1: str, p2: str, limit: int = 5):
     """
     LCA over biological graph = CHILD_OF upward only.
     Returns up to `limit` ancestors with minimal combined depth.
+    
+    Args:
+        p1: First person ID
+        p2: Second person ID
+        limit: Maximum number of ancestors to return
+        
+    Returns:
+        List of common ancestors with depth information
     """
     cypher = """
     MATCH (a:Person {spm_person_no:$p1}), (b:Person {spm_person_no:$p2})

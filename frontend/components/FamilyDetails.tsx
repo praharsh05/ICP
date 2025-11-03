@@ -148,8 +148,8 @@ export default function FamilyDetails({
     } else {
       // Resident icons (currently same, but you can change these paths)
       return isFemale 
-        ? `${apiUrl}/static/img/resident/female_icon.jpg`  // Can be resident_female_icon.jpg
-        : `${apiUrl}/static/img/resident/male_icon.jpg`;   // Can be resident_male_icon.jpg
+        ? `${apiUrl}/static/img/resident/female.png`  // Can be resident_female_icon.jpg
+        : `${apiUrl}/static/img/resident/male.png`;   // Can be resident_male_icon.jpg
     }
   };
 

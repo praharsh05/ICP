@@ -24,27 +24,25 @@ def read_tree(
         Family tree data with nodes and edges
         
     Examples:
-        GET /api/v1/persons/123456/tree
-        GET /api/v1/persons/123456/tree?depth=5
-        GET /api/v1/persons/123456/tree?person_type=citizen
-        GET /api/v1/persons/123456/tree?depth=5&person_type=resident
+        GET /api/v1/persons/P0020375801/tree
+        GET /api/v1/persons/P0020375801/tree?depth=5
+        GET /api/v1/persons/P0020375801/tree?person_type=citizen
+        GET /api/v1/persons/R5403276/tree?depth=5&person_type=resident
     
     Response format:
         {
-            "root": "123456",
+            "root": "P0020375801",
             "nodes": [
                 {
-                    "id": "123456",
-                    "label": "Ahmed Mohammed",
-                    "full_name": "Ahmed Mohammed Ali",
+                    "id": "P0020375801",
+                    "label": "Ali Hassan Al Mazrouei",
+                    "full_name": "Ali Hassan Al Mazrouei",
                     "sex": "M",
-                    "date_of_birth": "1985-01-15",
-                    "national_id": "784-1985-1234567-1",  // citizens only
-                    "passport": "A12345678",                // both
-                    "person_type": "citizen",               // citizen or resident
-                    "life_status": "alive",
-                    "nationality": "AE",
-                    "kin": "self"
+                    "date_of_birth": "2004-09-19",       // null for citizens, date for residents
+                    "national_id": "NID5448510872",      // may be null
+                    "passport": "PA22710627",             // may be null
+                    "person_type": "citizen",             // "citizen" or "resident"
+                    "kin": "self"                         // relationship to root person
                 },
                 ...
             ],
@@ -62,6 +60,14 @@ def read_tree(
                 ...
             ]
         }
+    
+    Note:
+        - Citizens have IDs starting with 'P' (e.g., P0020375801)
+        - Residents have IDs starting with 'R' (e.g., R5403276)
+        - date_of_birth is only available for residents
+        - kin types: self, husband, wife, spouse, father, mother, parent, son, daughter, child,
+                     brother, sister, sibling, paternal grandfather, paternal grandmother,
+                     maternal grandfather, maternal grandmother, grandson, granddaughter, grandchild
     """
     # Get tree data from graph service
     data = get_person_tree(
@@ -95,20 +101,25 @@ def read_lca(
         List of common ancestors with depth information
         
     Examples:
-        GET /api/v1/lca?p1=123456&p2=789012
-        GET /api/v1/lca?p1=123456&p2=789012&limit=10
+        GET /api/v1/lca?p1=P0020375801&p2=P0034751727
+        GET /api/v1/lca?p1=R5403276&p2=R6873285&limit=10
     
     Response format:
         [
             {
-                "ancestor_id": "345678",
-                "full_name": "Mohammed Ali Hassan",
+                "ancestor_id": "P0224686427",
+                "full_name": "Nasser Hassan Al Mazrouei",
                 "da": 2,           // depth from p1 to ancestor
                 "db": 3,           // depth from p2 to ancestor
                 "total_depth": 5   // combined depth
             },
             ...
         ]
+    
+    Note:
+        - Works across both citizens and residents
+        - Returns ancestors ordered by total_depth (shortest path first)
+        - If p1 and p2 are the same person, returns that person with depth 0
     """
     # Handle same person case
     if p1 == p2:

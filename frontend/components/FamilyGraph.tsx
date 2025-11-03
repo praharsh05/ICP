@@ -715,17 +715,28 @@ export default function FamilyGraph({
             // Avatar
             const apiUrl =
               process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-            let avatarPath = `${apiUrl}/static/img/male_icon.jpg`;
 
-            if (d.sex) {
-              const sex = String(d.sex).toUpperCase();
-              avatarPath =
-                sex === "F"
-                  ? `${apiUrl}/static/img/female_icon.jpg`
-                  : `${apiUrl}/static/img/male_icon.jpg`;
-            } else if (isCluster) {
-              avatarPath = `${apiUrl}/static/img/male_icon.jpg`;
+            
+            // Determine if this is a citizen or resident
+            const isCitizen = d.person_type === 'citizen' || 
+                              (d.person_type === undefined && d.national_id);
+            const isFemale = d.sex && String(d.sex).toUpperCase() === 'F';
+            
+            let avatarPath;
+            if (isCluster) {
+              // For cluster nodes, use male citizen icon as default
+              avatarPath = `${apiUrl}/static/img/citizen/male_icon.jpg`;
+            } else if (isCitizen) {
+              avatarPath = isFemale 
+                ? `${apiUrl}/static/img/citizen/female_icon.jpg`
+                : `${apiUrl}/static/img/citizen/male_icon.jpg`;
+            } else {
+              // Resident icons use .png extension
+              avatarPath = isFemale 
+                ? `${apiUrl}/static/img/resident/female.png`
+                : `${apiUrl}/static/img/resident/male.png`;
             }
+
 
             const avatarImg = el.querySelector(
               ".avatar-img"

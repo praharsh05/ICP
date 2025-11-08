@@ -587,9 +587,6 @@ export default function LandingPage() {
             <div className="animate-fade-in-up lg:pr-8 lg:order-2">
               <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold text-neutral-900 mb-4">
                 {t("feature6.title")}
-                <span className="block text-lg mt-2" dir="rtl">
-                  دعم اللغة العربية
-                </span>
               </h3>
               <p className="text-base sm:text-lg text-neutral-600 mb-6 leading-relaxed">
                 {t("feature6.description")}

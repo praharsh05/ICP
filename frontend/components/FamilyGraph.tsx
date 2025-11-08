@@ -772,12 +772,24 @@ export default function FamilyGraph({
             // Popover data
             const metaBits: string[] = [];
             if (d.life_status) metaBits.push(String(d.life_status));
-            if (d.sex)
-              metaBits.push(
-                String(d.sex).toUpperCase() === "F" ? "Female" : "Male"
-              );
-            if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
-            if (d.passport) metaBits.push(`Passport: ${d.passport}`);
+            // if (d.sex)
+            //   metaBits.push(
+            //     String(d.sex).toUpperCase() === "F" ? "Female" : "Male"
+            //   );
+            if (d.national_id) {
+              metaBits.push(`NID: ${d.national_id}`);
+            }
+            else {
+              metaBits.push(`NID: -`);
+            }
+            // if (d.national_id) metaBits.push(`NID: ${d.national_id}`);
+            // if (d.passport) metaBits.push(`Passport: ${d.passport}`);
+            if (d.passport) {
+              metaBits.push(`Passport: ${d.passport}`);
+            }
+            else {
+              metaBits.push(`Passport:: -`);
+            }
 
             const hoverTitle = isCluster ? displayName : fullName;
             const hoverMeta = metaBits.join(" • ");

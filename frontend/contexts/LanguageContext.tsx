@@ -210,7 +210,7 @@ const translations = {
 
     // Hero Section
     "hero.badge": "Powered by ICP",
-    "hero.title": "Family Tree PoC - Built for Relationship Intelligence",
+    "hero.title": "Family Tree - Built for Relationship Intelligence",
     "hero.subtitle":
       "Search, verify, and visualize family links for citizens & residents. Enter your Unified ID to see a living family tree, expand nodes, trace spouses and children, and verify relationships. Evidence-based, secure, and fast.",
     "hero.accessSystem": "Access System",
@@ -233,7 +233,7 @@ const translations = {
     // Feature 2 - Family Tree & Lineage For Citizens
     "feature2.title": "Family Tree & Lineage For Citizens",
     "feature2.description":
-      "Applies official family-book rules to render verified kinship: head of family, multiple wives, remarriage/divorce, and generational moves (son forms new book, daughter joins husband).",
+      "Applies official family-book rules to render verified kinship: head of family, multiple wives, remarriage/divorce, and generational moves.",
     "feature2.badge": "Evidence-based, rule-driven",
 
     // Feature 3 - Resident Relationship Graph
@@ -251,17 +251,17 @@ const translations = {
     // Feature 5 - Fast, Responsive Exploration
     "feature5.title": "Fast, Responsive Exploration",
     "feature5.description":
-      "Graph endpoints are tuned for quick results on the PoC subset.",
-    "feature5.badge": "Sub-second interactions (PoC target)",
+      "Graph endpoints are tuned for quick results on the data subset.",
+    "feature5.badge": "Sub-second interactions",
 
     // Feature 6 - Hover Over Cards & Person Information
-    "feature6.title": "Hover Over Cards & Person Information",
+    "feature6.title": "Instant Access to Detailed Person Information",
     "feature6.description":
-      "See key details at a glance. Hover any node to view a compact card with name, uID, age/DoB, nationality, without leaving the graph.",
+      "See key details at a glance. Hover over any node to view a spanshot with name, Unified ID, DoB, nationality, without leaving the graph.",
     "feature6.badge": "At-a-glance context",
 
     // Feature 7 - Ready to Scale After PoC
-    "feature7.title": "Ready to Scale After PoC",
+    "feature7.title": "Ready to Scale",
     "feature7.description":
       "Pipelines are production-ready: Spark jobs, partitioned loads, and Neo4j constraints/indexes. Move from subset to full scale with minimal redesign.",
     "feature7.badge": "Designed for scale",
@@ -279,7 +279,7 @@ const translations = {
     "cta.button": "Access System",
 
     // Footer
-    "footer.title": "FamilyGraph - Family Tree & Relationship Mapping (PoC)",
+    "footer.title": "FamilyGraph - Family Tree & Relationship Mapping",
     "footer.authority":
       "Federal Authority for Identity, Citizenship, Customs & Port Security",
     "footer.system": "System",

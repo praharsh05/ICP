@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
-from app.services.graph_service import get_person_tree, lowest_common_ancestors
+from app.services.graph_service import get_person_tree
 
 router = APIRouter(prefix="/api/v1", tags=["family"])
 
@@ -13,6 +13,7 @@ def read_tree(
 ):
     """
     Get family tree for a person with optional person_type filtering.
+    Includes biological, step, and guardian relationships.
     
     Args:
         spm_person_no: Unified person number (SPM_PERSON_NO)
@@ -53,6 +54,16 @@ def read_tree(
                     "type": "CHILD_OF"
                 },
                 {
+                    "source": "step_child_id",
+                    "target": "step_parent_id",
+                    "type": "STEP_CHILD_OF"
+                },
+                {
+                    "source": "ward_id",
+                    "target": "guardian_id",
+                    "type": "GUARDIAN_OF"
+                },
+                {
                     "source": "spouse1_id",
                     "target": "spouse2_id",
                     "type": "SPOUSE_OF"
@@ -61,13 +72,28 @@ def read_tree(
             ]
         }
     
+    Relationship Types:
+        - CHILD_OF: Biological parent-child relationship (child -> parent)
+        - STEP_CHILD_OF: Step-parent relationship (step-child -> step-parent)
+        - GUARDIAN_OF: Guardian relationship (ward -> guardian)
+        - SPOUSE_OF: Marriage relationship (bidirectional)
+    
+    Kinship Types:
+        Biological: self, father, mother, parent, son, daughter, child, 
+                   brother, sister, sibling, grandfather, grandmother,
+                   grandson, granddaughter, grandchild
+        Step: step-father, step-mother, step-parent, step-son, step-daughter,
+              step-child, step-brother, step-sister, step-sibling,
+              step-grandfather, step-grandmother, step-grandparent
+        Guardian: guardian, ward
+        Marriage: husband, wife, spouse
+    
     Note:
         - Citizens have IDs starting with 'P' (e.g., P0020375801)
         - Residents have IDs starting with 'R' (e.g., R5403276)
         - date_of_birth is only available for residents
-        - kin types: self, husband, wife, spouse, father, mother, parent, son, daughter, child,
-                     brother, sister, sibling, paternal grandfather, paternal grandmother,
-                     maternal grandfather, maternal grandmother, grandson, granddaughter, grandchild
+        - Step-siblings are biological children of step-parents
+        - All relationship types are included in the response for complete family view
     """
     # Get tree data from graph service
     data = get_person_tree(
@@ -82,56 +108,3 @@ def read_tree(
         return data
     
     return data
-
-@router.get("/lca")
-def read_lca(
-    p1: str, 
-    p2: str, 
-    limit: int = Query(5, ge=1, le=20)
-):
-    """
-    Find lowest common ancestors (LCA) between two persons.
-    
-    Args:
-        p1: First person's unified number
-        p2: Second person's unified number
-        limit: Maximum number of ancestors to return (1-20, default 5)
-        
-    Returns:
-        List of common ancestors with depth information
-        
-    Examples:
-        GET /api/v1/lca?p1=P0020375801&p2=P0034751727
-        GET /api/v1/lca?p1=R5403276&p2=R6873285&limit=10
-    
-    Response format:
-        [
-            {
-                "ancestor_id": "P0224686427",
-                "full_name": "Nasser Hassan Al Mazrouei",
-                "da": 2,           // depth from p1 to ancestor
-                "db": 3,           // depth from p2 to ancestor
-                "total_depth": 5   // combined depth
-            },
-            ...
-        ]
-    
-    Note:
-        - Works across both citizens and residents
-        - Returns ancestors ordered by total_depth (shortest path first)
-        - If p1 and p2 are the same person, returns that person with depth 0
-    """
-    # Handle same person case
-    if p1 == p2:
-        # Same person is their own ancestor with depth 0
-        return [{
-            "ancestor_id": p1, 
-            "full_name": None, 
-            "da": 0, 
-            "db": 0, 
-            "total_depth": 0
-        }]
-    
-    # Find common ancestors
-    res = lowest_common_ancestors(p1, p2, limit=limit)
-    return res

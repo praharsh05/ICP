@@ -7,16 +7,24 @@ def get_person_tree(
     person_type: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    5-tier tree for the Sigma UI with optional person_type filtering.
+    Enhanced 5-tier tree supporting biological, step, and guardian relationships.
     
     Includes:
-      - ego
-      - spouses (1 hop)
-      - parents & grandparents (up to 2 hops up)
-      - children & grandchildren (up to 2 hops down)
-      - siblings (share >=1 parent)
+      - ego (self)
+      - spouses (1 hop via SPOUSE_OF)
+      - biological parents & grandparents (up to 2 hops via CHILD_OF)
+      - step-parents (via STEP_CHILD_OF)
+      - guardians (via GUARDIAN_OF)
+      - biological children & grandchildren (up to 2 hops via CHILD_OF)
+      - step-children (via STEP_CHILD_OF reverse)
+      - biological siblings (share >=1 biological parent via CHILD_OF)
+      - step-siblings (children of step-parents)
     
-    Emits only directed CHILD_OF (child -> parent) and deduped SPOUSE_OF.
+    Emits relationships:
+      - CHILD_OF (child -> biological parent, directed)
+      - STEP_CHILD_OF (step-child -> step-parent, directed)
+      - GUARDIAN_OF (ward -> guardian, directed)
+      - SPOUSE_OF (bidirectional, deduplicated)
     
     Args:
         spm_person_no: Root person ID
@@ -47,33 +55,79 @@ def get_person_tree(
     WITH ego
     WHERE ego IS NOT NULL
 
-    // 5-tier nodes
+    // === SPOUSES ===
     OPTIONAL MATCH (ego)-[:SPOUSE_OF]-(sp)
     WHERE sp:Citizen OR sp:Resident
     
-    OPTIONAL MATCH (ego)-[:CHILD_OF*1..{up_hops}]->(anc)
-    WHERE anc:Citizen OR anc:Resident
+    // === BIOLOGICAL FAMILY ===
+    // Biological parents & grandparents (up to 2 hops)
+    OPTIONAL MATCH (ego)-[:CHILD_OF*1..{up_hops}]->(bio_anc)
+    WHERE bio_anc:Citizen OR bio_anc:Resident
     
-    OPTIONAL MATCH (ego)<-[:CHILD_OF*1..{down_hops}]-(desc)
-    WHERE desc:Citizen OR desc:Resident
+    // Biological children & grandchildren (up to 2 hops down)
+    OPTIONAL MATCH (ego)<-[:CHILD_OF*1..{down_hops}]-(bio_desc)
+    WHERE bio_desc:Citizen OR bio_desc:Resident
     
-    OPTIONAL MATCH (ego)-[:CHILD_OF]->(p)<-[:CHILD_OF]-(sib)
-    WHERE (sib:Citizen OR sib:Resident) AND sib <> ego
+    // Biological siblings (share >=1 biological parent)
+    OPTIONAL MATCH (ego)-[:CHILD_OF]->(bio_parent)<-[:CHILD_OF]-(bio_sib)
+    WHERE (bio_sib:Citizen OR bio_sib:Resident) AND bio_sib <> ego
+    
+    // === STEP RELATIONSHIPS ===
+    // Step-parents (people ego is step-child of)
+    OPTIONAL MATCH (ego)-[:STEP_CHILD_OF]->(step_parent)
+    WHERE step_parent:Citizen OR step_parent:Resident
+    
+    // Step-children (people who are step-children of ego)
+    OPTIONAL MATCH (ego)<-[:STEP_CHILD_OF]-(step_child)
+    WHERE step_child:Citizen OR step_child:Resident
+    
+    // Step-grandparents (step-parents' parents)
+    OPTIONAL MATCH (ego)-[:STEP_CHILD_OF]->(step_parent)-[:CHILD_OF]->(step_gp)
+    WHERE step_gp:Citizen OR step_gp:Resident
+    
+    // Step-siblings (biological children of step-parents)
+    // These are people who share a step-parent with ego but are biologically related to that parent
+    OPTIONAL MATCH (ego)-[:STEP_CHILD_OF]->(step_parent)<-[:CHILD_OF]-(step_sib)
+    WHERE (step_sib:Citizen OR step_sib:Resident) AND step_sib <> ego
+    
+    // === GUARDIAN RELATIONSHIPS ===
+    // Guardians (people who are guardians of ego)
+    OPTIONAL MATCH (ego)-[:GUARDIAN_OF]->(guardian)
+    WHERE guardian:Citizen OR guardian:Resident
+    
+    // Wards (people ego is guardian of)
+    OPTIONAL MATCH (ego)<-[:GUARDIAN_OF]-(ward)
+    WHERE ward:Citizen OR ward:Resident
 
     WITH ego,
-         collect(DISTINCT sp)   AS spouses,
-         collect(DISTINCT anc)  AS ancestors,
-         collect(DISTINCT desc) AS descendants,
-         collect(DISTINCT sib)  AS siblings
+         collect(DISTINCT sp) AS spouses,
+         collect(DISTINCT bio_anc) AS bio_ancestors,
+         collect(DISTINCT bio_desc) AS bio_descendants,
+         collect(DISTINCT bio_sib) AS bio_siblings,
+         collect(DISTINCT step_parent) AS step_parents,
+         collect(DISTINCT step_child) AS step_children,
+         collect(DISTINCT step_gp) AS step_grandparents,
+         collect(DISTINCT step_sib) AS step_siblings,
+         collect(DISTINCT guardian) AS guardians,
+         collect(DISTINCT ward) AS wards
 
     // Combine all nodes, ensuring ego is included
-    WITH ego, spouses, ancestors, descendants, siblings,
-         [n IN ([ego] + spouses + ancestors + descendants + siblings) WHERE n IS NOT NULL] AS all_nodes
+    WITH ego, 
+         spouses, bio_ancestors, bio_descendants, bio_siblings,
+         step_parents, step_children, step_grandparents, step_siblings,
+         guardians, wards,
+         [n IN (
+             [ego] + 
+             spouses + 
+             bio_ancestors + bio_descendants + bio_siblings +
+             step_parents + step_children + step_grandparents + step_siblings +
+             guardians + wards
+         ) WHERE n IS NOT NULL] AS all_nodes
     
-    WITH ego, all_nodes,
-         [n IN all_nodes | n.spm_person_no] AS node_ids
+    WITH ego, all_nodes
 
-    // Get child edges
+    // === GET EDGES ===
+    // Biological CHILD_OF edges
     UNWIND all_nodes AS child
     OPTIONAL MATCH (child)-[:CHILD_OF]->(parent)
     WHERE parent IN all_nodes
@@ -83,37 +137,63 @@ def get_person_tree(
         type: 'CHILD_OF'
     }}) AS child_edges
 
-    // Get spouse edges (deduplicated)
+    // STEP_CHILD_OF edges
+    UNWIND all_nodes AS step_child
+    OPTIONAL MATCH (step_child)-[:STEP_CHILD_OF]->(step_parent)
+    WHERE step_parent IN all_nodes
+    WITH ego, all_nodes, child_edges, collect(DISTINCT {{
+        source: step_child.spm_person_no,
+        target: step_parent.spm_person_no,
+        type: 'STEP_CHILD_OF'
+    }}) AS step_child_edges
+
+    // GUARDIAN_OF edges
+    UNWIND all_nodes AS ward
+    OPTIONAL MATCH (ward)-[:GUARDIAN_OF]->(guardian)
+    WHERE guardian IN all_nodes
+    WITH ego, all_nodes, child_edges, step_child_edges, collect(DISTINCT {{
+        source: ward.spm_person_no,
+        target: guardian.spm_person_no,
+        type: 'GUARDIAN_OF'
+    }}) AS guardian_edges
+
+    // SPOUSE_OF edges (deduplicated)
     UNWIND all_nodes AS person1
     OPTIONAL MATCH (person1)-[:SPOUSE_OF]-(person2)
     WHERE person2 IN all_nodes AND person1.spm_person_no < person2.spm_person_no
-    WITH ego, all_nodes, child_edges, collect(DISTINCT {{
-        source: person1.spm_person_no,
-        target: person2.spm_person_no,
-        type: 'SPOUSE_OF'
-    }}) AS spouse_edges
+    WITH ego, all_nodes, child_edges, step_child_edges, guardian_edges, 
+         collect(DISTINCT {{
+            source: person1.spm_person_no,
+            target: person2.spm_person_no,
+            type: 'SPOUSE_OF'
+         }}) AS spouse_edges
 
+    // Combine all edges
     WITH ego, all_nodes, 
          [e IN child_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
+         [e IN step_child_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
+         [e IN guardian_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
          [e IN spouse_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] AS edges
 
-    // Resolve father/mother for kinship computation
-    OPTIONAL MATCH (ego)-[:CHILD_OF]->(father)
-    WHERE father IN all_nodes AND father.sex = 'M'
+    // === DETERMINE KINSHIP ===
+    // Resolve biological parents for kinship computation
+    OPTIONAL MATCH (ego)-[:CHILD_OF]->(bio_father)
+    WHERE bio_father IN all_nodes AND bio_father.sex = 'M'
     
-    OPTIONAL MATCH (ego)-[:CHILD_OF]->(mother)
-    WHERE mother IN all_nodes AND mother.sex = 'F'
+    OPTIONAL MATCH (ego)-[:CHILD_OF]->(bio_mother)
+    WHERE bio_mother IN all_nodes AND bio_mother.sex = 'F'
 
     WITH ego, all_nodes, edges, 
-         head(collect(DISTINCT father)) AS father, 
-         head(collect(DISTINCT mother)) AS mother
+         head(collect(DISTINCT bio_father)) AS bio_father, 
+         head(collect(DISTINCT bio_mother)) AS bio_mother
 
-    // Build node objects with kinship
+    // Build node objects with enhanced kinship
     UNWIND all_nodes AS n
-    WITH ego, father, mother, n, edges,
+    WITH ego, bio_father, bio_mother, n, edges,
          CASE
            WHEN n = ego THEN 'self'
 
+           // Spouses
            WHEN (n)-[:SPOUSE_OF]-(ego) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'husband'
@@ -121,6 +201,7 @@ def get_person_tree(
                ELSE 'spouse'
              END
 
+           // Biological parents
            WHEN (ego)-[:CHILD_OF]->(n) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'father'
@@ -128,6 +209,18 @@ def get_person_tree(
                ELSE 'parent'
              END
 
+           // Step-parents
+           WHEN (ego)-[:STEP_CHILD_OF]->(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'step-father'
+               WHEN 'F' THEN 'step-mother'
+               ELSE 'step-parent'
+             END
+
+           // Guardians
+           WHEN (ego)-[:GUARDIAN_OF]->(n) THEN 'guardian'
+
+           // Biological children
            WHEN (n)-[:CHILD_OF]->(ego) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'son'
@@ -135,6 +228,18 @@ def get_person_tree(
                ELSE 'child'
              END
 
+           // Step-children
+           WHEN (n)-[:STEP_CHILD_OF]->(ego) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'step-son'
+               WHEN 'F' THEN 'step-daughter'
+               ELSE 'step-child'
+             END
+
+           // Wards
+           WHEN (n)-[:GUARDIAN_OF]->(ego) THEN 'ward'
+
+           // Biological siblings
            WHEN (ego)-[:CHILD_OF]->()<-[:CHILD_OF]-(n) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'brother'
@@ -142,20 +247,39 @@ def get_person_tree(
                ELSE 'sibling'
              END
 
-           WHEN father IS NOT NULL AND (father)-[:CHILD_OF]->(n) THEN
+           // Step-siblings (biological children of step-parents)
+           WHEN (ego)-[:STEP_CHILD_OF]->()<-[:CHILD_OF]-(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'step-brother'
+               WHEN 'F' THEN 'step-sister'
+               ELSE 'step-sibling'
+             END
+
+           // Biological grandparents (paternal)
+           WHEN bio_father IS NOT NULL AND (bio_father)-[:CHILD_OF]->(n) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'paternal grandfather'
                WHEN 'F' THEN 'paternal grandmother'
                ELSE 'paternal grandparent'
              END
 
-           WHEN mother IS NOT NULL AND (mother)-[:CHILD_OF]->(n) THEN
+           // Biological grandparents (maternal)
+           WHEN bio_mother IS NOT NULL AND (bio_mother)-[:CHILD_OF]->(n) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'maternal grandfather'
                WHEN 'F' THEN 'maternal grandmother'
                ELSE 'maternal grandparent'
              END
 
+           // Step-grandparents
+           WHEN (ego)-[:STEP_CHILD_OF]->()-[:CHILD_OF]->(n) THEN
+             CASE toUpper(n.sex)
+               WHEN 'M' THEN 'step-grandfather'
+               WHEN 'F' THEN 'step-grandmother'
+               ELSE 'step-grandparent'
+             END
+
+           // Biological grandchildren
            WHEN (n)-[:CHILD_OF]->()<-[:CHILD_OF]-(ego) THEN
              CASE toUpper(n.sex)
                WHEN 'M' THEN 'grandson'
@@ -199,33 +323,3 @@ def get_person_tree(
         "nodes": rec["nodes"] or [],
         "edges": rec["edges"] or [],
     }
-
-def lowest_common_ancestors(p1: str, p2: str, limit: int = 5):
-    """
-    LCA over biological graph = CHILD_OF upward only.
-    Returns up to `limit` ancestors with minimal combined depth.
-    
-    Args:
-        p1: First person ID
-        p2: Second person ID
-        limit: Maximum number of ancestors to return
-        
-    Returns:
-        List of common ancestors with depth information
-    """
-    cypher = """
-    MATCH (a) WHERE (a:Citizen OR a:Resident) AND a.spm_person_no = $p1
-    MATCH (b) WHERE (b:Citizen OR b:Resident) AND b.spm_person_no = $p2
-    MATCH pathA = (a)-[:CHILD_OF*0..]->(anc)
-    WHERE anc:Citizen OR anc:Resident
-    WITH b, anc, length(pathA) AS da
-    MATCH pathB = (b)-[:CHILD_OF*0..]->(anc)
-    WITH anc, da, length(pathB) AS db
-    RETURN anc.spm_person_no AS ancestor_id,
-           anc.full_name     AS full_name,
-           da, db, (da+db)   AS total_depth
-    ORDER BY total_depth ASC, da ASC, db ASC
-    LIMIT $limit
-    """
-    rows = neo4j_client.run(cypher, {"p1": p1, "p2": p2, "limit": limit})
-    return [dict(r) for r in rows]

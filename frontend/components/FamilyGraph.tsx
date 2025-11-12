@@ -174,13 +174,13 @@ function layoutFiveTier(
 
   // Row +1: Parents + In-laws cluster
   const pArr = Array.from(parents);
-  const father =
+  const father: any =
     pArr.find(
-      (p: any) => (idMap.get(p)?.kin || "").toLowerCase() === "father"
+      (p: any) => ((idMap.get(p) as any)?.kin || "").toLowerCase() === "father"
     ) || pArr[0];
-  const mother =
+  const mother: any =
     pArr.find(
-      (p: any) => (idMap.get(p)?.kin || "").toLowerCase() === "mother"
+      (p: any) => ((idMap.get(p) as any)?.kin || "").toLowerCase() === "mother"
     ) || pArr.find((p: any) => p !== father);
 
   if (father) coords.set(father, { x: -0.9 * GAP, y: Y.P });
@@ -197,8 +197,8 @@ function layoutFiveTier(
   }
 
   // Row +2: Grandparents clusters (split paternal/maternal)
-  const gpsF = father ? gpOf(father, parentsOf) : new Set();
-  const gpsM = mother ? gpOf(mother, parentsOf) : new Set();
+  const gpsF = father ? gpOf(father as string, parentsOf) : new Set();
+  const gpsM = mother ? gpOf(mother as string, parentsOf) : new Set();
   const gpsFVisible = Array.from(gpsF).filter((id: any) => idMap.has(id));
   const gpsMVisible = Array.from(gpsM).filter((id: any) => idMap.has(id));
 
@@ -213,7 +213,7 @@ function layoutFiveTier(
   Array.from(children).forEach((c: any) => {
     const ps = Array.from(parentsOf.get(c) || []);
     const motherId =
-      ps.find((p: any) => (idMap.get(p)?.sex || "F") === "F") || null;
+      ps.find((p: any) => ((idMap.get(p) as any)?.sex || "F") === "F") || null;
     const key = motherId && spouses.has(motherId) ? motherId : KEY_ROOT;
     if (!childGroups.has(key)) childGroups.set(key, []);
     childGroups.get(key).push(c);
@@ -587,7 +587,7 @@ export default function FamilyGraph({
             }
             used.add(id);
 
-            const d = idMap.get(id) || {};
+            const d = (idMap.get(id) as any) || {};
             const isCluster =
               typeof id === "string" && id.startsWith("__cluster_");
             const isSelf = !isCluster && id === currentRoot;

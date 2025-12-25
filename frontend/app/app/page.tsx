@@ -34,11 +34,21 @@ export default function App() {
 
   useEffect(() => {
     // Check authentication status
-    const checkAuth = () => {
-      const authStatus = localStorage.getItem('isAuthenticated');
-      if (authStatus === 'true') {
-        setIsAuthenticated(true);
-        fetchNotebooks();
+    const checkAuth = async () => {
+      // Import authService dynamically to avoid SSR issues
+      const { authService } = await import('../../utils/authService');
+      
+      if (authService.isAuthenticated()) {
+        try {
+          // Verify token is still valid by fetching user info
+          await authService.getCurrentUserInfo();
+          setIsAuthenticated(true);
+          fetchNotebooks();
+        } catch (error) {
+          // Token invalid, redirect to login
+          authService.logout();
+          window.location.href = '/landing';
+        }
       } else {
         // Redirect to landing page if not authenticated
         window.location.href = '/landing';
@@ -102,10 +112,9 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
+  const handleLogout = async () => {
+    const { authService } = await import('../../utils/authService');
+    authService.logout();
     window.location.href = '/landing';
   };
 

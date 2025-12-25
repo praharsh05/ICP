@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 from app.db.neo4j_client import neo4j_client
+from app.db.postgres_client import init_db, engine
 from app.routers.family import router as family_router
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -31,7 +32,13 @@ def health():
 
 @app.on_event("startup")
 def startup_event():
+    # Initialize Neo4j connection
     neo4j_client.connect()
+    
+    # Initialize PostgreSQL database tables
+    # This will create tables if they don't exist
+    init_db()
+    print("✓ PostgreSQL database initialized")
 
 @app.on_event("shutdown")
 def shutdown_event():

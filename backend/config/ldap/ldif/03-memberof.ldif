@@ -1,0 +1,22 @@
+# Add memberOf attribute to users (for group membership)
+dn: uid=testuser,ou=users,dc=icp,dc=local
+changetype: modify
+add: memberOf
+memberOf: cn=admins,ou=groups,dc=icp,dc=local
+memberOf: cn=developers,ou=groups,dc=icp,dc=local
+memberOf: cn=users,ou=groups,dc=icp,dc=local
+
+dn: uid=newuser,ou=users,dc=icp,dc=local
+changetype: modify
+add: memberOf
+memberOf: cn=developers,ou=groups,dc=icp,dc=local
+memberOf: cn=users,ou=groups,dc=icp,dc=local
+
+dn: uid=adminuser,ou=users,dc=icp,dc=local
+changetype: modify
+add: memberOf
+memberOf: cn=admins,ou=groups,dc=icp,dc=local
+memberOf: cn=users,ou=groups,dc=icp,dc=local
+
+
+

@@ -21,25 +21,53 @@ import {
 } from "lucide-react";
 import { useLanguage } from "../../contexts/LanguageContext";
 import LanguageToggle from "../../components/LanguageToggle";
+import AuthModal from "../../components/AuthModal";
+import { authService } from "../../utils/authService";
 
 export default function LandingPage() {
   const { t, language } = useLanguage();
   const router = useRouter();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<
-    "citizens" | "residents" | null
-  >(null);
   const [unifiedId, setUnifiedId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
 
-  const handleGenerateTree = () => {
-    if (!selectedProfile || !unifiedId.trim()) return;
+  const handleGenerateTree = async () => {
+    if (!unifiedId.trim()) {
+      setError("Please enter a Unified ID");
+      return;
+    }
 
-    // Store profile selection
-    localStorage.setItem("profileType", selectedProfile);
+    setValidating(true);
+    setError(null);
 
-    // Navigate to tree visualization page
-    router.push(`/tree/${unifiedId}?type=${selectedProfile}`);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(
+        `${apiUrl}/api/v1/persons/${unifiedId.trim()}/exists`
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to validate Unified ID');
+      }
+
+      const data = await response.json();
+
+      if (!data.exists) {
+        setError("User not present or wrong Unified ID");
+        setValidating(false);
+        return;
+      }
+
+      // Navigate to tree visualization page
+      router.push(`/tree/${unifiedId.trim()}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setValidating(false);
+    }
   };
 
   return (
@@ -76,7 +104,16 @@ export default function LandingPage() {
               <LanguageToggle />
               <button
                 onClick={() => {
-                  setShowAuthModal(true);
+                  // Check if already authenticated
+                  if (authService.isAuthenticated()) {
+                    setShowProfileModal(true);
+                  } else {
+                    if (authService.isAuthenticated()) {
+                      setShowProfileModal(true);
+                    } else {
+                      setShowAuthModal(true);
+                    }
+                  }
                 }}
                 className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors"
               >
@@ -116,7 +153,11 @@ export default function LandingPage() {
                 <LanguageToggle />
                 <button
                   onClick={() => {
-                    setShowAuthModal(true);
+                    if (authService.isAuthenticated()) {
+                      setShowProfileModal(true);
+                    } else {
+                      setShowAuthModal(true);
+                    }
                     setMobileMenuOpen(false);
                   }}
                   className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-center"
@@ -152,7 +193,11 @@ export default function LandingPage() {
               <div className="flex flex-col sm:flex-row gap-4 mb-12 max-w-md mx-auto lg:mx-0 lg:max-w-none">
                 <button
                   onClick={() => {
-                    setShowAuthModal(true);
+                    if (authService.isAuthenticated()) {
+                      setShowProfileModal(true);
+                    } else {
+                      setShowAuthModal(true);
+                    }
                   }}
                   className="bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white px-8 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all duration-300 shadow-medium hover:shadow-strong hover:-translate-y-0.5"
                 >
@@ -855,99 +900,86 @@ export default function LandingPage() {
       </footer>
 
       {/* Profile Type Modal */}
-      {showAuthModal && (
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          setShowAuthModal(false);
+          setShowProfileModal(true);
+        }}
+      />
+
+      {/* Profile Selection Modal (shown after authentication) */}
+      {showProfileModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-neutral-900 mb-2">
-                  {t("profile.title")}
+                  Input Unified ID
                 </h2>
                 <p className="text-sm text-neutral-600">
-                  {t("profile.subtitle")}
+                  Enter a Unified ID to generate the family tree
                 </p>
               </div>
               <button
-                onClick={() => setShowAuthModal(false)}
+                onClick={() => {
+                  setShowProfileModal(false);
+                  setUnifiedId("");
+                  setError(null);
+                }}
                 className="text-neutral-500 hover:text-neutral-700"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {/* Citizens Option */}
-              <button
-                onClick={() => setSelectedProfile("citizens")}
-                className={`p-6 rounded-xl border-2 transition-all text-left ${
-                  selectedProfile === "citizens"
-                    ? "border-primary-600 bg-primary-50"
-                    : "border-neutral-200 hover:border-primary-300 hover:bg-neutral-50"
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <Users className="w-6 h-6 text-primary-600" />
-                  <h3 className="text-lg font-semibold text-neutral-900">
-                    {t("profile.citizens")}
-                  </h3>
-                </div>
-                <p className="text-sm text-neutral-600">
-                  {t("profile.citizensDesc")}
-                </p>
-              </button>
-
-              {/* Residents Option */}
-              <button
-                onClick={() => setSelectedProfile("residents")}
-                className={`p-6 rounded-xl border-2 transition-all text-left ${
-                  selectedProfile === "residents"
-                    ? "border-primary-600 bg-primary-50"
-                    : "border-neutral-200 hover:border-primary-300 hover:bg-neutral-50"
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <Globe className="w-6 h-6 text-primary-600" />
-                  <h3 className="text-lg font-semibold text-neutral-900">
-                    {t("profile.residents")}
-                  </h3>
-                </div>
-                <p className="text-sm text-neutral-600">
-                  {t("profile.residentsDesc")}
-                </p>
-              </button>
-            </div>
-
             {/* Unified ID Input */}
-            {selectedProfile && (
-              <div className="mb-6">
-                <label
-                  htmlFor="unifiedId"
-                  className="block text-sm font-medium text-neutral-700 mb-2"
-                >
-                  Unified ID
-                </label>
-                <input
-                  type="text"
-                  id="unifiedId"
-                  value={unifiedId}
-                  onChange={(e) => setUnifiedId(e.target.value)}
-                  placeholder="Enter Unified ID (e.g., P1968702237)"
-                  className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleGenerateTree();
-                    }
-                  }}
-                />
-              </div>
-            )}
+            <div className="mb-6">
+              <label
+                htmlFor="unifiedId"
+                className="block text-sm font-medium text-neutral-700 mb-2"
+              >
+                Unified ID
+              </label>
+              <input
+                type="text"
+                id="unifiedId"
+                value={unifiedId}
+                onChange={(e) => {
+                  setUnifiedId(e.target.value);
+                  setError(null);
+                }}
+                placeholder="Enter Unified ID (e.g., E1)"
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors ${
+                  error ? "border-red-500" : "border-neutral-300"
+                }`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !validating) {
+                    handleGenerateTree();
+                  }
+                }}
+                disabled={validating}
+              />
+              {error && (
+                <p className="mt-2 text-sm text-red-600">{error}</p>
+              )}
+            </div>
 
             <button
               onClick={handleGenerateTree}
-              disabled={!selectedProfile || !unifiedId.trim()}
-              className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold transition-colors"
+              disabled={!unifiedId.trim() || validating}
+              className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
             >
-              Generate Family Tree
+              {validating ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Validating...
+                </>
+              ) : (
+                "Generate Family Tree"
+              )}
             </button>
 
             <p className="text-xs text-neutral-500 text-center mt-4">

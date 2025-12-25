@@ -28,7 +28,7 @@ export default function TreePage() {
         
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const response = await fetch(
-          `${apiUrl}/api/v1/persons/${currentPersonId}/tree?depth=3&lang=en`
+          `${apiUrl}/api/v1/persons/${currentPersonId}/tree?depth=3`
         );
 
         if (!response.ok) {

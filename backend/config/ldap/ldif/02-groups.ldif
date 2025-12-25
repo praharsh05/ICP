@@ -1,0 +1,28 @@
+# Create groups
+dn: cn=admins,ou=groups,dc=icp,dc=local
+objectClass: posixGroup
+objectClass: groupOfNames
+cn: admins
+gidNumber: 2000
+member: uid=adminuser,ou=users,dc=icp,dc=local
+member: uid=testuser,ou=users,dc=icp,dc=local
+
+dn: cn=developers,ou=groups,dc=icp,dc=local
+objectClass: posixGroup
+objectClass: groupOfNames
+cn: developers
+gidNumber: 2001
+member: uid=newuser,ou=users,dc=icp,dc=local
+member: uid=testuser,ou=users,dc=icp,dc=local
+
+dn: cn=users,ou=groups,dc=icp,dc=local
+objectClass: posixGroup
+objectClass: groupOfNames
+cn: users
+gidNumber: 2002
+member: uid=newuser,ou=users,dc=icp,dc=local
+member: uid=testuser,ou=users,dc=icp,dc=local
+member: uid=adminuser,ou=users,dc=icp,dc=local
+
+
+

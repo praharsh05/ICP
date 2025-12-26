@@ -683,11 +683,11 @@ export default function FamilyGraph({
                 p.setAttribute("opacity", "0.5");
               }
             } else if (e.type === "CHILD_OF") {
-              // Child-parent edges: different colors for mother vs father
+              // Child-parent edges: golden color for mother-child, gray for father-child
               const isMother = e.parent_sex === "F" || e.parent_sex === "f";
               if (isMother) {
-                // Mother-child edges: slightly thicker, pinkish color to distinguish
-                p.setAttribute("stroke", "#d946ef");
+                // Mother-child edges: golden color like spouse edges
+                p.setAttribute("stroke", "#bf7f00");
                 p.setAttribute("stroke-width", "2.5");
               } else {
                 // Father-child edges: standard gray
@@ -695,11 +695,23 @@ export default function FamilyGraph({
                 p.setAttribute("stroke-width", "2");
               }
             } else if (e.type === "SIBLING_OF") {
-              // Sibling edges: blue color to show connected siblings graph
-              p.setAttribute("stroke", "#3b82f6");
-              p.setAttribute("stroke-width", "2");
-              p.setAttribute("stroke-dasharray", "4,3");
-              p.setAttribute("opacity", "0.7");
+              // Check if these are step-siblings by looking at kin field
+              const sourceNode = idMap.get(e.source) as any;
+              const targetNode = idMap.get(e.target) as any;
+              const sourceKin = (sourceNode?.kin || "").toLowerCase();
+              const targetKin = (targetNode?.kin || "").toLowerCase();
+              const isStepSibling = sourceKin.startsWith("step-") || targetKin.startsWith("step-");
+              
+              if (isStepSibling) {
+                // Step-sibling edges: dotted grey lines
+                p.setAttribute("stroke", "#aeb4bd");
+                p.setAttribute("stroke-width", "2");
+                p.setAttribute("stroke-dasharray", "4,3");
+              } else {
+                // Regular sibling edges: solid grey lines
+                p.setAttribute("stroke", "#aeb4bd");
+                p.setAttribute("stroke-width", "2");
+              }
             } else {
               // Other edge types: standard gray
               p.setAttribute("stroke", "#aeb4bd");

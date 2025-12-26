@@ -216,7 +216,7 @@ export default function FamilyDetails({
             
             {/* 1b. NAME (Arabic) */}
             {nameArabic && (
-              <h4 className="font-semibold text-neutral-700 text-sm mb-2" dir="rtl">
+              <h4 className="font-semibold text-neutral-900 text-sm mb-2">
                 {nameArabic}
               </h4>
             )}
@@ -290,14 +290,6 @@ export default function FamilyDetails({
                 <div className="flex items-center gap-2">
                   <span className="text-neutral-500 font-medium">Gender:</span>
                   <span>{gender === 'F' || gender === 'Female' ? 'Female' : gender === 'M' || gender === 'Male' ? 'Male' : gender}</span>
-                </div>
-              )}
-
-              {/* Additional: National ID (if present) */}
-              {person.national_id && (
-                <div className="flex items-center gap-2">
-                  <span className="text-neutral-500 font-medium">National ID:</span>
-                  <span className="font-mono">{person.national_id}</span>
                 </div>
               )}
             </div>

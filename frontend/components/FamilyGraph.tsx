@@ -1188,10 +1188,28 @@ export default function FamilyGraph({
         document
           .getElementById("fullscreen-btn")
           ?.addEventListener("click", () => {
+            // Guard against detached elements to avoid "Element is not connected"
+            if (!graphContainer || !graphContainer.isConnected) return;
+
             if (!document.fullscreenElement) {
-              graphContainer.requestFullscreen();
+              if (typeof graphContainer.requestFullscreen === "function") {
+                graphContainer.requestFullscreen()
+                  .then(() => {
+                    // After entering fullscreen, fit to screen
+                    setTimeout(() => {
+                      centerCamera();
+                      renderer.refresh();
+                      draw();
+                    }, 50);
+                  })
+                  .catch(() => {
+                    // swallow to avoid runtime errors on browsers that block fullscreen
+                  });
+              }
             } else {
-              document.exitFullscreen();
+              if (typeof document.exitFullscreen === "function") {
+                document.exitFullscreen().catch(() => {});
+              }
             }
           });
 
@@ -1208,7 +1226,9 @@ export default function FamilyGraph({
         document
           .getElementById("fs-exit-btn")
           ?.addEventListener("click", () => {
-            if (document.exitFullscreen) document.exitFullscreen();
+            if (typeof document.exitFullscreen === "function") {
+              document.exitFullscreen().catch(() => {});
+            }
           });
 
         // Fullscreen visibility toggle

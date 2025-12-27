@@ -178,9 +178,28 @@ export default function FamilyDetails({
    * Field order: Name (Eng/Arabic) → DOB → Unified ID → Passport → Contact → Nationality → Gender
    */
   const renderPersonCard = (person: Person) => {
+    const formatDate = (d?: string) => {
+      if (!d) return "";
+      const parts = d.split(/[-/]/);
+      if (parts.length === 3) {
+        // If format is YYYY-MM-DD
+        if (parts[0].length === 4) {
+          const [y, m, day] = parts;
+          return `${day.padStart(2, "0")}-${m.padStart(2, "0")}-${y}`;
+        }
+        // If format is DD-MM-YYYY already, normalize padding
+        if (parts[2].length === 4) {
+          const [day, m, y] = parts;
+          return `${day.padStart(2, "0")}-${m.padStart(2, "0")}-${y}`;
+        }
+      }
+      return d; // fallback to original
+    };
+
     const nameEng = person.name_eng || person.full_name || person.name || person.label || person.id;
     const nameArabic = person.name_arabic;
-    const dob = person.dob || person.date_of_birth;
+    const dobRaw = person.dob || person.date_of_birth;
+    const dob = formatDate(dobRaw);
     const unifiedId = person.unified_id || person.id;
     const passportNo = person.passport_no || person.passport;
     const contactNo = person.contact_no;

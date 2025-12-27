@@ -401,6 +401,93 @@ function layoutFiveTier(
       edges.push({ source: ID_INLAWS, target: root, type: "IN_LAW" });
     }
   }
+
+  // Indirect siblings (half-siblings): share one parent but not both -> dotted grey line
+  // We add these only when no explicit sibling edge exists between the pair.
+  const halfSiblingPairs = new Set<string>();
+  const hasSiblingEdge = (a: any, b: any) =>
+    (data.edges || []).some(
+      (e: any) =>
+        e &&
+        e.type === "SIBLING_OF" &&
+        ((e.source === a && e.target === b) || (e.source === b && e.target === a))
+    );
+
+  const isClusterId = (id: any) =>
+    typeof id === "string" && id.startsWith("__cluster_");
+
+  const motherOf = (id: any) =>
+    Array.from(parentsOf.get(id) || []).find(
+      (p: any) => ((idMap.get(p) as any)?.sex || "").toUpperCase() === "F"
+    );
+  const fatherOf = (id: any) =>
+    Array.from(parentsOf.get(id) || []).find(
+      (p: any) => ((idMap.get(p) as any)?.sex || "").toUpperCase() === "M"
+    );
+
+  const explicitPeople = Array.from(explicit).filter((id: any) => !isClusterId(id));
+  explicitPeople.forEach((p1: any, idx: number) => {
+    for (let j = idx + 1; j < explicitPeople.length; j++) {
+      const p2 = explicitPeople[j];
+      if (!p1 || !p2) continue;
+
+      const parents1 = parentsOf.get(p1) || new Set();
+      const parents2 = parentsOf.get(p2) || new Set();
+      const sharedParents = new Set([...parents1].filter((p: any) => parents2.has(p)));
+
+      if (sharedParents.size === 0) continue; // no shared parent
+      const sameMother = motherOf(p1) && motherOf(p1) === motherOf(p2);
+      const sameFather = fatherOf(p1) && fatherOf(p1) === fatherOf(p2);
+      const bothParentsShared = sameMother && sameFather;
+
+      // Already direct siblings or explicit sibling edge -> skip
+      if (bothParentsShared || hasSiblingEdge(p1, p2)) continue;
+
+      // Half-sibling: share at least one parent but not both
+      const key = [p1, p2].sort().join("-");
+      if (halfSiblingPairs.has(key)) continue;
+      halfSiblingPairs.add(key);
+      edges.push({ source: p1, target: p2, type: "HALF_SIBLING_OF" });
+    }
+  });
+
+  // Cousin connections (indirect siblings) - grey dotted lines
+  // Find cousins: people who share grandparents but are not direct siblings
+  const cousinPairs = new Set();
+  Array.from(explicit).forEach((person1: any) => {
+    if (person1 === root) return; // Skip root
+
+    Array.from(explicit).forEach((person2: any) => {
+      if (person2 === root || person1 >= person2) return; // Skip root and avoid duplicates
+
+      // Check if they are cousins: share grandparents but not parents
+      const grandparents1 = gpOf(person1, parentsOf);
+      const grandparents2 = gpOf(person2, parentsOf);
+
+      // Check if they share at least one grandparent
+      const sharedGrandparents = new Set([...grandparents1].filter(g => grandparents2.has(g)));
+      const hasSharedGrandparent = sharedGrandparents.size > 0;
+
+      // Check if they are direct siblings (share parents)
+      const parents1 = parentsOf.get(person1) || new Set();
+      const parents2 = parentsOf.get(person2) || new Set();
+      const sharedParents = new Set([...parents1].filter(p => parents2.has(p)));
+      const areDirectSiblings = sharedParents.size > 0;
+
+      // They are cousins if they share grandparents but not parents
+      if (hasSharedGrandparent && !areDirectSiblings) {
+        const pairKey = [person1, person2].sort().join('-');
+        if (!cousinPairs.has(pairKey)) {
+          cousinPairs.add(pairKey);
+          edges.push({
+            source: person1,
+            target: person2,
+            type: "COUSIN_OF"
+          });
+        }
+      }
+    });
+  });
   // Grandchildren cluster edges - only if cluster is not expanded
   if (coords.has(ID_GCK) && !expandedClusters.has(ID_GCK)) {
     const kids = Array.from(children);
@@ -701,7 +788,7 @@ export default function FamilyGraph({
               const sourceKin = (sourceNode?.kin || "").toLowerCase();
               const targetKin = (targetNode?.kin || "").toLowerCase();
               const isStepSibling = sourceKin.startsWith("step-") || targetKin.startsWith("step-");
-              
+
               if (isStepSibling) {
                 // Step-sibling edges: dotted grey lines
                 p.setAttribute("stroke", "#aeb4bd");
@@ -712,6 +799,18 @@ export default function FamilyGraph({
                 p.setAttribute("stroke", "#aeb4bd");
                 p.setAttribute("stroke-width", "2");
               }
+            } else if (e.type === "HALF_SIBLING_OF") {
+              // Indirect siblings (half-siblings): more pronounced dotted grey
+              p.setAttribute("stroke", "#aeb4bd");
+              p.setAttribute("stroke-width", "2");
+              p.setAttribute("stroke-dasharray", "6,6");
+              p.setAttribute("opacity", "0.85");
+            } else if (e.type === "COUSIN_OF") {
+              // Cousin edges (indirect siblings): grey dotted lines
+              p.setAttribute("stroke", "#aeb4bd");
+              p.setAttribute("stroke-width", "1.5");
+              p.setAttribute("stroke-dasharray", "3,2");
+              p.setAttribute("opacity", "0.7");
             } else {
               // Other edge types: standard gray
               p.setAttribute("stroke", "#aeb4bd");

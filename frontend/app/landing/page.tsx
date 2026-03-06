@@ -894,7 +894,7 @@ export default function LandingPage() {
           </div>
 
           <div className="border-t border-neutral-800 mt-8 pt-8 text-center text-sm text-neutral-400">
-            <p>&copy; 2025 {t("footer.title")}</p>
+            <p>&copy; 2026 {t("footer.title")}</p>
           </div>
         </div>
       </footer>

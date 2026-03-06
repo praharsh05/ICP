@@ -30,7 +30,7 @@ const translations = {
 
     // Hero Section
     "hero.badge": "مدعوم بـ ICP",
-    "hero.title": "فاميلي جراف PoC - مصمم لذكاء العلاقات",
+    "hero.title": "فاميلي جراف - مصمم لذكاء العلاقات",
     "hero.subtitle":
       "ابحث وتحقق وشاهد روابط العائلة للمواطنين والمقيمين. أدخل رقماً موحداً لرؤية شجرة عائلة حية، وتوسيع العقد، وتتبع الأزواج والأطفال، والتحقق من العلاقات. قائم على الأدلة، آمن، وسريع.",
     "hero.accessSystem": "دخول النظام",
@@ -70,8 +70,8 @@ const translations = {
     // Feature 5 - Fast, Responsive Exploration
     "feature5.title": "استكشاف سريع ومرن",
     "feature5.description":
-      "نقاط GraphQL محسّنة لنتائج سريعة على مجموعة PoC الفرعية.",
-    "feature5.badge": "تفاعلات بأجزاء من الثانية (هدف PoC)",
+      "نقاط GraphQL محسّنة لنتائج سريعة على مجموعة الفرعية.",
+    "feature5.badge": "تفاعلات بأجزاء من الثانية (هدف )",
 
     // Feature 6 - Hover Over Cards & Person Information
     "feature6.title": "بطاقات التمرير ومعلومات الشخص",
@@ -80,7 +80,7 @@ const translations = {
     "feature6.badge": "سياق بنظرة واحدة",
 
     // Feature 7 - Ready to Scale After PoC
-    "feature7.title": "جاهز للتوسع بعد PoC",
+    "feature7.title": "جاهز للتوسع بعد ",
     "feature7.description":
       "خطوط الأنابيب جاهزة للإنتاج: وظائف Spark، تحميلات مقسمة، وقيود/فهارس Neo4j. الانتقال من المجموعة الفرعية إلى النطاق الكامل بأقل إعادة تصميم.",
     "feature7.badge": "مصمم للتوسع",
@@ -94,11 +94,11 @@ const translations = {
     // CTA Section
     "cta.title": "هل أنت مستعد لاستكشاف روابط العائلة الحقيقية؟",
     "cta.subtitle":
-      "افتح PoC للبحث بالرقم الموحد، وشاهد شجرة عائلة قائمة على الأدلة، ووسّع العلاقات",
+      "افتح للبحث بالرقم الموحد، وشاهد شجرة عائلة قائمة على الأدلة، ووسّع العلاقات",
     "cta.button": "دخول النظام",
 
     // Footer
-    "footer.title": "فاميلي جراف - شجرة العائلة وتخطيط العلاقات (PoC)",
+    "footer.title": "فاميلي جراف - شجرة العائلة وتخطيط العلاقات ",
     "footer.authority":
       "الهيئة الاتحادية للهوية والجنسية والجمارك وأمن المنافذ",
     "footer.system": "النظام",
@@ -275,7 +275,7 @@ const translations = {
     // CTA Section
     "cta.title": "Ready to explore real family connections?",
     "cta.subtitle":
-      "Open the PoC to search by unified number, view an evidence-based family tree, and expand relationships",
+      "Open the to search by unified number, view an evidence-based family tree, and expand relationships",
     "cta.button": "Access System",
 
     // Footer

@@ -159,7 +159,7 @@ export default function TreePage() {
       <footer className="bg-neutral-50 border-t border-neutral-200 py-4 flex-shrink-0 h-14">
         <div className="h-full max-w-full px-4 sm:px-6 lg:px-8 flex items-center">
           <p className="text-center text-sm text-neutral-600 w-full">
-            © 2025 Xpress Innovation
+            © 2026 Xpress Innovation
           </p>
         </div>
       </footer>

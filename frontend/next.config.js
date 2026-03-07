@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // keycloak-js is a pure ESM package — must be transpiled by Next.js
+  transpilePackages: ['keycloak-js'],
+
   // Enable standalone output for Docker
   output: 'standalone',
   

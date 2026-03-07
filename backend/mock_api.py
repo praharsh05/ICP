@@ -8,7 +8,7 @@ import time
 
 from app.db.postgres_client import init_db, get_db, engine
 from app.models.user_db import UserDB
-from app.routers import users, auth, ldap_sync, user_management
+from app.routers import users, auth, user_management
 
 app = FastAPI(title="FamilyTree API (Mock)", version="0.1.0")
 
@@ -295,5 +295,4 @@ def health_db(db: Session = Depends(get_db)):
 # Include routers
 app.include_router(users.router)
 app.include_router(auth.router)
-app.include_router(ldap_sync.router)
 app.include_router(user_management.router)

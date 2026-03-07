@@ -33,27 +33,15 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    // Check authentication status
     const checkAuth = async () => {
-      // Import authService dynamically to avoid SSR issues
       const { authService } = await import('../../utils/authService');
-      
-      if (authService.isAuthenticated()) {
-        try {
-          // Verify token is still valid by fetching user info
-          await authService.getCurrentUserInfo();
-          setIsAuthenticated(true);
-          fetchNotebooks();
-        } catch (error) {
-          // Token invalid, redirect to login
-          authService.logout();
-          window.location.href = '/landing';
-        }
-      } else {
-        // Redirect to landing page if not authenticated
-        window.location.href = '/landing';
+      const authenticated = await authService.initProtected();
+      if (authenticated) {
+        setIsAuthenticated(true);
+        fetchNotebooks();
+        setCheckingAuth(false);
       }
-      setCheckingAuth(false);
+      // If not authenticated, initProtected redirects to Keycloak (browser navigates away)
     };
 
     checkAuth();
@@ -114,8 +102,7 @@ export default function App() {
 
   const handleLogout = async () => {
     const { authService } = await import('../../utils/authService');
-    authService.logout();
-    window.location.href = '/landing';
+    await authService.logout(); // redirects to Keycloak logout, then /landing
   };
 
   const filteredNotebooks = notebooks.filter(notebook =>

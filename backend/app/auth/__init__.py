@@ -1,19 +1,11 @@
 """
-Authentication module for LDAP integration
+Authentication module — Keycloak OIDC
 """
-from .ldap_client_new import LDAPClient
-from .authentication import authenticate_user, get_current_user
-from .jwt_handler import create_access_token, verify_token, get_password_hash, verify_password
+from .keycloak_auth import verify_keycloak_token, extract_user_info
+from .authentication import get_current_user
 
 __all__ = [
-    'LDAPClient',
-    'authenticate_user',
-    'get_current_user',
-    'create_access_token',
-    'verify_token',
-    'get_password_hash',
-    'verify_password',
+    "verify_keycloak_token",
+    "extract_user_info",
+    "get_current_user",
 ]
-
-
-

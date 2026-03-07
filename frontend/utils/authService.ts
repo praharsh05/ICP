@@ -1,7 +1,15 @@
 /**
- * Authentication service for frontend
- * Handles login, logout, token management, and API calls with authentication
+ * Authentication service — Keycloak OIDC edition.
  */
+
+import {
+  getKeycloak,
+  initKeycloakRequired,
+  initKeycloakPassive,
+  keycloakLogout,
+  getAccessToken,
+  isKeycloakAuthenticated,
+} from './keycloak';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -17,226 +25,120 @@ export interface User {
   active: boolean;
 }
 
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-  user: User;
-}
-
-export interface AuthError {
-  message: string;
-  detail?: string;
-}
-
 class AuthService {
-  private tokenKey = 'auth_token';
-  private userKey = 'auth_user';
-
   /**
-   * Login with username and password
+   * For PROTECTED pages (/app, /tree, etc.)
+   * Uses `login-required` — redirects to Keycloak if not authenticated.
+   * Returns true when authenticated (after code exchange or existing session).
    */
-  async login(username: string, password: string): Promise<LoginResponse> {
-    const formData = new URLSearchParams();
-    formData.append('username', username);
-    formData.append('password', password);
-
-    const response = await fetch(`${API_URL}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(error.detail || 'Invalid username or password');
-    }
-
-    const data: LoginResponse = await response.json();
-    this.setToken(data.access_token);
-    this.setUser(data.user);
-    return data;
+  async initProtected(): Promise<boolean> {
+    return initKeycloakRequired();
   }
 
   /**
-   * Logout current user
+   * For PUBLIC pages (/landing).
+   * Passive init — no redirect. Returns true if already authenticated.
    */
-  logout(): void {
-    localStorage.removeItem(this.tokenKey);
-    localStorage.removeItem(this.userKey);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
+  async initPassive(): Promise<boolean> {
+    return initKeycloakPassive();
   }
 
   /**
-   * Get current authentication token
+   * Redirect to the Keycloak login page.
    */
-  getToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(this.tokenKey);
+  async login(redirectUri?: string): Promise<void> {
+    const { keycloakLogin } = await import('./keycloak');
+    await keycloakLogin(redirectUri ?? `${window.location.origin}/app`);
   }
 
   /**
-   * Set authentication token
+   * Redirect to the Keycloak logout endpoint.
    */
-  setToken(token: string): void {
-    localStorage.setItem(this.tokenKey, token);
-    localStorage.setItem('isAuthenticated', 'true');
+  async logout(): Promise<void> {
+    await keycloakLogout(`${window.location.origin}/landing`);
   }
 
   /**
-   * Get current user from storage
-   */
-  getCurrentUser(): User | null {
-    if (typeof window === 'undefined') return null;
-    const userStr = localStorage.getItem(this.userKey);
-    if (!userStr) return null;
-    try {
-      return JSON.parse(userStr);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Set current user
-   */
-  setUser(user: User): void {
-    localStorage.setItem(this.userKey, JSON.stringify(user));
-    if (user.email) localStorage.setItem('userEmail', user.email);
-    if (user.display_name || user.username) {
-      localStorage.setItem('userName', user.display_name || user.username);
-    }
-  }
-
-  /**
-   * Check if user is authenticated
+   * Synchronous check — only reliable after initProtected/initPassive has resolved.
    */
   isAuthenticated(): boolean {
-    return !!this.getToken();
+    return isKeycloakAuthenticated();
   }
 
   /**
-   * Get current user info from API
+   * Return the current Keycloak access token (auto-refreshed if near expiry).
+   */
+  async getToken(): Promise<string | null> {
+    return getAccessToken();
+  }
+
+  /**
+   * Fetch current user profile from the backend (/api/v1/auth/me).
    */
   async getCurrentUserInfo(): Promise<User> {
-    const token = this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+    const token = await this.getToken();
+    if (!token) throw new Error('Not authenticated');
 
     const response = await fetch(`${API_URL}/api/v1/auth/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        this.logout();
-        throw new Error('Session expired. Please login again.');
+        await this.login();
+        throw new Error('Session expired — redirecting to login');
       }
       throw new Error('Failed to fetch user info');
     }
 
-    const user: User = await response.json();
-    this.setUser(user);
-    return user;
+    return response.json();
   }
 
   /**
-   * Make authenticated API request
+   * Make an authenticated fetch request.
    */
-  async authenticatedFetch(
-    url: string,
-    options: RequestInit = {}
-  ): Promise<Response> {
-    const token = this.getToken();
+  async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const token = await this.getToken();
     if (!token) {
+      await this.login();
       throw new Error('Not authenticated');
     }
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...options.headers,
-    };
-
     const response = await fetch(url, {
       ...options,
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
     });
 
     if (response.status === 401) {
-      this.logout();
-      if (typeof window !== 'undefined') {
-        window.location.href = '/landing';
-      }
+      await this.login();
       throw new Error('Session expired');
     }
 
     return response;
   }
 
-  /**
-   * Request password reset
-   */
-  async requestPasswordReset(email: string): Promise<void> {
-    const response = await fetch(`${API_URL}/api/v1/user-management/request-password-reset`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new Error(error.detail || 'Failed to request password reset');
+  async getRoles(): Promise<string[]> {
+    try {
+      const kc = await getKeycloak();
+      const realmAccess = (kc.tokenParsed as any)?.realm_access ?? {};
+      const allRoles: string[] = realmAccess.roles ?? [];
+      const systemRoles = new Set(['offline_access', 'uma_authorization']);
+      return allRoles.filter(
+        (r: string) => !systemRoles.has(r) && !r.startsWith('default-roles-'),
+      );
+    } catch {
+      return [];
     }
   }
 
-  /**
-   * Refresh user roles from LDAP
-   */
-  async refreshRoles(): Promise<User> {
-    const response = await this.authenticatedFetch(
-      `${API_URL}/api/v1/user-management/refresh-roles`,
-      { method: 'POST' }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to refresh roles');
-    }
-
-    const user: User = await response.json();
-    this.setUser(user);
-    return user;
-  }
-
-  /**
-   * Check if user has specific role
-   */
-  hasRole(role: string): boolean {
-    const user = this.getCurrentUser();
-    return user?.roles?.includes(role) || false;
-  }
-
-  /**
-   * Check if user has any of the specified roles
-   */
-  hasAnyRole(...roles: string[]): boolean {
-    const user = this.getCurrentUser();
-    if (!user?.roles) return false;
-    return roles.some(role => user.roles.includes(role));
+  async hasRole(role: string): Promise<boolean> {
+    const roles = await this.getRoles();
+    return roles.includes(role);
   }
 }
 
 export const authService = new AuthService();
-
-
-
-
-

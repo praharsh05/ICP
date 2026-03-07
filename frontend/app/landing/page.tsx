@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -33,6 +33,26 @@ export default function LandingPage() {
   const [unifiedId, setUnifiedId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Initialise Keycloak passively and track auth state as React state
+  useEffect(() => {
+    authService.initPassive().then((authenticated) => {
+      setIsLoggedIn(authenticated);
+    });
+  }, []);
+
+  const handleAccessSystem = () => {
+    if (isLoggedIn) {
+      setShowProfileModal(true);
+    } else {
+      setShowAuthModal(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    await authService.logout();
+  };
 
   const handleGenerateTree = async () => {
     if (!unifiedId.trim()) {
@@ -102,23 +122,29 @@ export default function LandingPage() {
                 {t("header.about")}
               </a>
               <LanguageToggle />
-              <button
-                onClick={() => {
-                  // Check if already authenticated
-                  if (authService.isAuthenticated()) {
-                    setShowProfileModal(true);
-                  } else {
-                    if (authService.isAuthenticated()) {
-                      setShowProfileModal(true);
-                    } else {
-                      setShowAuthModal(true);
-                    }
-                  }
-                }}
-                className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                {t("header.accessSystem")}
-              </button>
+              {isLoggedIn ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleAccessSystem}
+                    className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    {t("header.accessSystem")}
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="text-neutral-600 hover:text-neutral-900 text-sm px-3 py-2 rounded-lg border border-neutral-300 hover:border-neutral-400 transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleAccessSystem}
+                  className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  {t("header.signIn")}
+                </button>
+              )}
             </nav>
 
             {/* Mobile Menu Button */}
@@ -152,18 +178,19 @@ export default function LandingPage() {
                 </a>
                 <LanguageToggle />
                 <button
-                  onClick={() => {
-                    if (authService.isAuthenticated()) {
-                      setShowProfileModal(true);
-                    } else {
-                      setShowAuthModal(true);
-                    }
-                    setMobileMenuOpen(false);
-                  }}
+                  onClick={() => { handleAccessSystem(); setMobileMenuOpen(false); }}
                   className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-center"
                 >
-                  {t("header.accessSystem")}
+                  {isLoggedIn ? t("header.accessSystem") : t("header.signIn")}
                 </button>
+                {isLoggedIn && (
+                  <button
+                    onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
+                    className="text-neutral-600 hover:text-neutral-900 text-sm px-3 py-2 rounded-lg border border-neutral-300 text-center"
+                  >
+                    Sign Out
+                  </button>
+                )}
               </nav>
             </div>
           )}
@@ -192,16 +219,10 @@ export default function LandingPage() {
 
               <div className="flex flex-col sm:flex-row gap-4 mb-12 max-w-md mx-auto lg:mx-0 lg:max-w-none">
                 <button
-                  onClick={() => {
-                    if (authService.isAuthenticated()) {
-                      setShowProfileModal(true);
-                    } else {
-                      setShowAuthModal(true);
-                    }
-                  }}
+                  onClick={handleAccessSystem}
                   className="bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white px-8 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all duration-300 shadow-medium hover:shadow-strong hover:-translate-y-0.5"
                 >
-                  {t("hero.accessSystem")}
+                  {isLoggedIn ? t("hero.accessSystem") : t("hero.signIn")}
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
@@ -870,9 +891,7 @@ export default function LandingPage() {
             {t("cta.subtitle")}
           </p>
           <button
-            onClick={() => {
-              setShowAuthModal(true);
-            }}
+            onClick={handleAccessSystem}
             className="bg-white text-primary-600 hover:bg-neutral-50 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-300 inline-flex items-center gap-2 shadow-medium hover:shadow-strong hover:-translate-y-0.5"
           >
             {t("cta.button")}

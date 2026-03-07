@@ -12,7 +12,6 @@ import secrets
 from app.db.postgres_client import get_db
 from app.models.user_db import UserDB
 from app.auth.authentication import get_current_user
-from app.auth.jwt_handler import create_access_token
 from app.services.email_service import email_service
 from pydantic import BaseModel, EmailStr
 

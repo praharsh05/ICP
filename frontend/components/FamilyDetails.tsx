@@ -8,11 +8,19 @@ interface Person {
   label?: string;
   full_name?: string;
   name?: string;
-  sex?: string;
-  kin?: string;
-  national_id?: string;
-  passport?: string;
+  name_eng?: string;
+  name_arabic?: string;
+  dob?: string;
   date_of_birth?: string;
+  unified_id?: string;
+  passport_no?: string;
+  passport?: string;
+  contact_no?: string;
+  nationality?: string;
+  gender?: string;
+  sex?: string;
+  national_id?: string;
+  kin?: string;
   person_type?: 'citizen' | 'resident';
 }
 
@@ -39,6 +47,7 @@ export default function FamilyDetails({
     personal: true,
     parents: true,
     spouses: true,
+    siblings: true,
     children: true,
   });
 
@@ -49,6 +58,7 @@ export default function FamilyDetails({
         personal: true,
         parents: true,
         spouses: true,
+        siblings: true,
         children: true,
       });
     }
@@ -114,6 +124,16 @@ export default function FamilyDetails({
           const spouse = idMap.get(edge.source);
           if (spouse) spouses.push(spouse);
         }
+      } else if (type === 'SIBLING_OF') {
+        // Sibling relationships (bidirectional)
+        if (edge.source === personId) {
+          const sibling = idMap.get(edge.target);
+          if (sibling) siblings.push(sibling);
+        }
+        if (edge.target === personId) {
+          const sibling = idMap.get(edge.source);
+          if (sibling) siblings.push(sibling);
+        }
       }
     });
 
@@ -154,11 +174,37 @@ export default function FamilyDetails({
   };
 
   /**
-   * Render a person card with conditional metadata based on person_type
-   * Field order: Full name → Person type → Kin → DOB → National ID (citizens only)
+   * Render a person card with all production meta fields
+   * Field order: Name (Eng/Arabic) → DOB → Unified ID → Passport → Contact → Nationality → Gender
    */
   const renderPersonCard = (person: Person) => {
-    const fullName = person.full_name || person.name || person.label || person.id;
+    const formatDate = (d?: string) => {
+      if (!d) return "";
+      const parts = d.split(/[-/]/);
+      if (parts.length === 3) {
+        // If format is YYYY-MM-DD
+        if (parts[0].length === 4) {
+          const [y, m, day] = parts;
+          return `${day.padStart(2, "0")}-${m.padStart(2, "0")}-${y}`;
+        }
+        // If format is DD-MM-YYYY already, normalize padding
+        if (parts[2].length === 4) {
+          const [day, m, y] = parts;
+          return `${day.padStart(2, "0")}-${m.padStart(2, "0")}-${y}`;
+        }
+      }
+      return d; // fallback to original
+    };
+
+    const nameEng = person.name_eng || person.full_name || person.name || person.label || person.id;
+    const nameArabic = person.name_arabic;
+    const dobRaw = person.dob || person.date_of_birth;
+    const dob = formatDate(dobRaw);
+    const unifiedId = person.unified_id || person.id;
+    const passportNo = person.passport_no || person.passport;
+    const contactNo = person.contact_no;
+    const nationality = person.nationality;
+    const gender = person.gender || person.sex;
     const kin = person.kin || '';
     
     // Determine if this person is a citizen
@@ -175,20 +221,27 @@ export default function FamilyDetails({
           <div className="w-12 h-12 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
             <img
               src={getAvatarUrl(person)}
-              alt={fullName}
+              alt={nameEng}
               className="w-full h-full object-cover"
             />
           </div>
 
-          {/* Details - Specific order */}
+          {/* Details - Production meta fields */}
           <div className="flex-1 min-w-0">
-            {/* 1. FULL NAME */}
-            <h4 className="font-semibold text-neutral-900 text-sm mb-2">
-              {fullName}
+            {/* 1. NAME (English) */}
+            <h4 className="font-semibold text-neutral-900 text-sm mb-1">
+              {nameEng}
             </h4>
+            
+            {/* 1b. NAME (Arabic) */}
+            {nameArabic && (
+              <h4 className="font-semibold text-neutral-900 text-sm mb-2">
+                {nameArabic}
+              </h4>
+            )}
 
-            {/* Info items in specific order */}
-            <div className="space-y-2 text-xs text-neutral-600">
+            {/* Info items - Production fields */}
+            <div className="space-y-1.5 text-xs text-neutral-600">
               
               {/* 2. PERSON TYPE */}
               {person.person_type && (
@@ -212,34 +265,50 @@ export default function FamilyDetails({
               )}
               
               {/* 4. DATE OF BIRTH */}
-              {person.date_of_birth && (
+              {dob && (
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500">DOB:</span>
-                  <span className="font-mono">{person.date_of_birth}</span>
+                  <span className="text-neutral-500 font-medium">DOB:</span>
+                  <span className="font-mono">{dob}</span>
                 </div>
               )}
 
-              {/* 5. NATIONAL ID - Citizens only */}
-              {isCitizen && person.national_id && (
+              {/* 5. UNIFIED ID */}
+              {unifiedId && (
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500">National ID:</span>
-                  <span className="font-mono">{person.national_id}</span>
+                  <span className="text-neutral-500 font-medium">Unified ID:</span>
+                  <span className="font-mono">{unifiedId}</span>
                 </div>
               )}
-              
-              {/* ADDITIONAL: Gender */}
-              {person.sex && (
+
+              {/* 6. PASSPORT NO */}
+              {passportNo && (
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500">Gender:</span>
-                  <span>{person.sex === 'F' ? 'Female' : 'Male'}</span>
+                  <span className="text-neutral-500 font-medium">Passport No:</span>
+                  <span className="font-mono">{passportNo}</span>
                 </div>
               )}
-              
-              {/* ADDITIONAL: Passport (if present, for citizens) */}
-              {isCitizen && person.passport && (
+
+              {/* 7. CONTACT NO */}
+              {contactNo && (
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500">Passport:</span>
-                  <span className="font-mono">{person.passport}</span>
+                  <span className="text-neutral-500 font-medium">Contact No:</span>
+                  <span>{contactNo}</span>
+                </div>
+              )}
+
+              {/* 8. NATIONALITY */}
+              {nationality && (
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-500 font-medium">Nationality:</span>
+                  <span>{nationality}</span>
+                </div>
+              )}
+
+              {/* 9. GENDER */}
+              {gender && (
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-500 font-medium">Gender:</span>
+                  <span>{gender === 'F' || gender === 'Female' ? 'Female' : gender === 'M' || gender === 'Male' ? 'Male' : gender}</span>
                 </div>
               )}
             </div>
@@ -264,6 +333,11 @@ export default function FamilyDetails({
       id: 'spouses',
       title: 'Spouses',
       data: relationships.spouses,
+    },
+    {
+      id: 'siblings',
+      title: 'Siblings',
+      data: relationships.siblings,
     },
     {
       id: 'children',

@@ -12,5 +12,16 @@ fastapi-cors==0.0.6
 # Pydantic for data validation
 pydantic==2.8.2
 pydantic-settings==2.1.0
+email-validator==2.1.0
 # Optional: for production
 gunicorn==21.2.0
+# LDAP Authentication
+ldap3==2.9.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# PostgreSQL for user storage
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+# YAML configuration
+pyyaml==6.0.3

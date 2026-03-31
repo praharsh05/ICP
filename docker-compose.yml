@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: icp-openldap
+    ports:
+      - "389:389"
+      - "636:636"
+    environment:
+      - LDAP_ORGANISATION=ICP Organization
+      - LDAP_DOMAIN=icp.local
+      - LDAP_BASE_DN=dc=icp,dc=local
+      - LDAP_ADMIN_PASSWORD=admin
+      - LDAP_CONFIG_PASSWORD=config
+      - LDAP_READONLY_USER=false
+      - LDAP_RFC2307BIS_SCHEMA=false
+      - LDAP_BACKEND=mdb
+      - LDAP_TLS=false
+      - LDAP_TLS_CRT_FILENAME=ldap.crt
+      - LDAP_TLS_KEY_FILENAME=ldap.key
+      - LDAP_TLS_DH_PARAM_FILENAME=dhparam.pem
+      - LDAP_TLS_CA_CRT_FILENAME=ca.crt
+      - LDAP_TLS_ENFORCE=false
+      - LDAP_TLS_CIPHER_SUITE=SECURE256:-VERS-SSL3.0
+      - LDAP_TLS_PROTOCOL_MIN=3.1
+      - LDAP_TLS_VERIFY_CLIENT=demand
+      - LDAP_REPLICATION=false
+      - KEEP_EXISTING_CONFIG=false
+      - LDAP_REMOVE_CONFIG_AFTER_SETUP=true
+      - LDAP_SSL_HELPER_PREFIX=ldap
+    volumes:
+      - openldap_data:/var/lib/ldap
+      - openldap_config:/etc/ldap/slapd.d
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost:389 -b dc=icp,dc=local -D 'cn=admin,dc=icp,dc=local' -w admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - icp-network
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    container_name: icp-phpldapadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PHPLDAPADMIN_LDAP_HOSTS=openldap
+      - PHPLDAPADMIN_HTTPS=false
+    depends_on:
+      - openldap
+    networks:
+      - icp-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: icp-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=icp_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - icp-network
+
+  neo4j:
+    image: neo4j:5.13
+    container_name: icp-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_server_memory_heap_max__size=2G
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - icp-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: icp-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/icp_db
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+      - NEO4J_DB=neo4j
+      - SQL_ECHO=false
+      # LDAP Configuration
+      - LDAP_HOST=openldap
+      - LDAP_PORT=389
+      - LDAP_USE_SSL=false
+      - LDAP_USE_TLS=false
+      - LDAP_BIND_DN=cn=admin,dc=icp,dc=local
+      - LDAP_BIND_PASSWORD=admin
+      - LDAP_BASE_DN=dc=icp,dc=local
+      - LDAP_USER_SEARCH_BASE=ou=users,dc=icp,dc=local
+      - LDAP_USERNAME_ATTR=uid
+      - LDAP_EMAIL_ATTR=mail
+      - LDAP_FIRST_NAME_ATTR=givenName
+      - LDAP_LAST_NAME_ATTR=sn
+      - LDAP_DISPLAY_NAME_ATTR=cn
+      - LDAP_GROUPS_ATTR=memberOf
+    volumes:
+      - ./backend:/app
+    networks:
+      - icp-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    command: uvicorn mock_api:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: icp-frontend
+    ports:
+      - "6693:6693"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - icp-network
+    command: npm run dev
+
+networks:
+  icp-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  openldap_data:
+  openldap_config:
+
+
+

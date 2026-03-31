@@ -1,0 +1,38 @@
+# Role Mapping Configuration
+# Maps LDAP groups to application roles
+
+role_mapping:
+  # Direct mappings from LDAP group DNs to application roles
+  "cn=admins,ou=groups,dc=icp,dc=local":
+    - "admin"
+    - "manager"
+    
+  "cn=developers,ou=groups,dc=icp,dc=local":
+    - "developer"
+    - "viewer"
+    
+  "cn=users,ou=groups,dc=icp,dc=local":
+    - "viewer"
+  
+  # Pattern-based mapping (optional)
+  # Matches group names using regex patterns
+  patterns:
+    - pattern: ".*admin.*"
+      roles: ["admin"]
+    - pattern: ".*Admin.*"
+      roles: ["admin"]
+    - pattern: ".*manager.*"
+      roles: ["manager", "viewer"]
+    - pattern: ".*Manager.*"
+      roles: ["manager", "viewer"]
+    - pattern: ".*developer.*"
+      roles: ["developer", "viewer"]
+    - pattern: ".*Developer.*"
+      roles: ["developer", "viewer"]
+      
+  # Default roles for users not in any mapped group
+  default:
+    - "viewer"
+
+
+

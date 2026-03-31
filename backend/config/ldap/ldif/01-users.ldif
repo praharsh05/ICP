@@ -1,0 +1,60 @@
+# Create organizational units
+dn: ou=users,dc=icp,dc=local
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=icp,dc=local
+objectClass: organizationalUnit
+ou: groups
+
+# Create test users
+dn: uid=testuser,ou=users,dc=icp,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: testuser
+sn: User
+givenName: Test
+cn: Test User
+displayName: Test User
+mail: test@example.com
+uidNumber: 1000
+gidNumber: 1000
+userPassword: {SSHA}testpass
+homeDirectory: /home/testuser
+loginShell: /bin/bash
+
+dn: uid=newuser,ou=users,dc=icp,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: newuser
+sn: User
+givenName: New
+cn: New User
+displayName: New User
+mail: newuser@example.com
+uidNumber: 1001
+gidNumber: 1001
+userPassword: {SSHA}newpass
+homeDirectory: /home/newuser
+loginShell: /bin/bash
+
+dn: uid=adminuser,ou=users,dc=icp,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: adminuser
+sn: Admin
+givenName: Admin
+cn: Admin User
+displayName: Admin User
+mail: admin@example.com
+uidNumber: 1002
+gidNumber: 1002
+userPassword: {SSHA}adminpass
+homeDirectory: /home/adminuser
+loginShell: /bin/bash
+
+
+

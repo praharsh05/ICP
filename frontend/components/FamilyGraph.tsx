@@ -17,6 +17,7 @@ function buildAdj(data: any) {
   const parentsOf = new Map();
   const childrenOf = new Map();
   const spousesOf = new Map();
+  const siblingsOf = new Map();
 
   (data.edges || []).forEach((e: any) => {
     if (!e || !e.source || !e.target) return;
@@ -31,10 +32,15 @@ function buildAdj(data: any) {
       spousesOf.get(e.source).add(e.target);
       if (!spousesOf.has(e.target)) spousesOf.set(e.target, new Set());
       spousesOf.get(e.target).add(e.source);
+    } else if (T === "SIBLING_OF") {
+      if (!siblingsOf.has(e.source)) siblingsOf.set(e.source, new Set());
+      siblingsOf.get(e.source).add(e.target);
+      if (!siblingsOf.has(e.target)) siblingsOf.set(e.target, new Set());
+      siblingsOf.get(e.target).add(e.source);
     }
   });
 
-  return { parentsOf, childrenOf, spousesOf };
+  return { parentsOf, childrenOf, spousesOf, siblingsOf };
 }
 
 function siblingsOf(
@@ -137,14 +143,18 @@ function layoutFiveTier(
   ID_INLAWS: string,
   ID_GPS_M: string,
   ID_GPS_F: string,
-  ID_GCK: string
+  ID_GCK: string,
+  expandedClusters: Set<string> = new Set()
 ) {
-  const { parentsOf, childrenOf, spousesOf } = adj;
+  const { parentsOf, childrenOf, spousesOf, siblingsOf: siblingsMap } = adj;
   const idMap = new Map(data.nodes.map((n: any) => [n.id, n]));
 
   const spouses = new Set(spousesOf.get(root) || []);
   const parents = new Set(parentsOf.get(root) || []);
-  const siblings = siblingsOf(root, parentsOf, childrenOf);
+  // Get siblings from both explicit SIBLING_OF edges and computed siblings
+  const explicitSiblings = new Set((siblingsMap || new Map()).get(root) || []);
+  const computedSiblings = siblingsOf(root, parentsOf, childrenOf);
+  const siblings = new Set([...explicitSiblings, ...computedSiblings]);
   const children = new Set(childrenOf.get(root) || []);
   const inlawParents = spouseParents(spouses, parentsOf);
   const grandparents = gpOf(root, parentsOf);
@@ -156,20 +166,52 @@ function layoutFiveTier(
   coords.set(root, { x: 0, y: Y.MID });
 
   const spousesArr = Array.from(spouses).sort();
+  
+  // Distribute wives around the husband
+  // For 1 wife: right side
+  // For 2 wives: left and right
+  // For 3+ wives: alternate left/right (wife 1 left, wife 2 right, wife 3 right, wife 4 left, etc.)
   spousesArr.forEach((s: any, i: number) => {
-    coords.set(s, { x: (i + 1) * GAP, y: Y.MID });
+    let xPos: number;
+    if (spousesArr.length === 1) {
+      // Single wife: place on right
+      xPos = GAP;
+    } else if (spousesArr.length === 2) {
+      // Two wives: left and right
+      xPos = i === 0 ? -GAP : GAP;
+    } else {
+      // Three or more wives: alternate left/right
+      // Wife 0: left, Wife 1: right, Wife 2: right, Wife 3: left, etc.
+      if (i === 0) {
+        xPos = -GAP; // First wife on left
+      } else if (i === 1) {
+        xPos = GAP; // Second wife on right
+      } else {
+        // Alternate: even index (2, 4, 6...) on right, odd index (3, 5, 7...) on left
+        xPos = i % 2 === 0 ? GAP : -GAP;
+      }
+    }
+    coords.set(s, { x: xPos, y: Y.MID });
   });
 
   // Siblings (split left/right, excluding spouses)
+  // Position siblings away from wives to avoid overlap
   const sibArr = Array.from(siblings)
     .filter((s: any) => !spouses.has(s))
     .sort();
   const left: any[] = [];
   const right: any[] = [];
   sibArr.forEach((id, i) => (i % 2 === 0 ? left : right).push(id));
-  left.forEach((id, i) => coords.set(id, { x: -(i + 1) * GAP, y: Y.MID }));
+  
+  // Calculate max wife position to avoid overlap
+  const maxWifeX = spousesArr.length > 0 
+    ? Math.max(...spousesArr.map((s: any) => Math.abs(coords.get(s)?.x || 0)))
+    : 0;
+  const siblingOffset = maxWifeX + GAP * 1.5;
+  
+  left.forEach((id, i) => coords.set(id, { x: -(siblingOffset + (i + 1) * GAP), y: Y.MID }));
   right.forEach((id, i) =>
-    coords.set(id, { x: (i + 1 + spousesArr.length) * GAP, y: Y.MID })
+    coords.set(id, { x: siblingOffset + (i + 1) * GAP, y: Y.MID })
   );
 
   // Row +1: Parents + In-laws cluster
@@ -205,7 +247,7 @@ function layoutFiveTier(
   if (gpsFVisible.length > 0) coords.set(ID_GPS_F, { x: -0.9 * GAP, y: Y.GP });
   if (gpsMVisible.length > 0) coords.set(ID_GPS_M, { x: 0.9 * GAP, y: Y.GP });
 
-  // Row -1: Children (grouped by mother if spouse)
+  // Row -1: Children (grouped by mother, positioned below their mother)
   const KEY_ROOT = "__root__";
   const xOf = (id: string) => (coords.has(id) ? coords.get(id).x : 0);
   const childGroups = new Map();
@@ -221,7 +263,16 @@ function layoutFiveTier(
 
   childGroups.forEach((arr: any[], key: string) => {
     arr.sort();
-    const centerX = key === KEY_ROOT ? xOf(root) : (xOf(root) + xOf(key)) / 2;
+    let centerX: number;
+    
+    if (key === KEY_ROOT) {
+      // Children without a spouse mother: position below root
+      centerX = xOf(root);
+    } else {
+      // Children with a spouse mother: position below their mother
+      centerX = xOf(key);
+    }
+    
     if (arr.length === 1) {
       coords.set(arr[0], { x: centerX, y: Y.C });
     } else {
@@ -231,11 +282,20 @@ function layoutFiveTier(
     }
   });
 
-  // Row -2: Grandchildren cluster
+  // Row -2: Grandchildren cluster or expanded grandchildren
   const grandkidsVisible = Array.from(grandkids).filter((id: any) =>
     idMap.has(id)
   );
-  if (grandkidsVisible.length > 0) {
+  
+  if (expandedClusters.has(ID_GCK) && grandkidsVisible.length > 0) {
+    // Expand grandchildren cluster - show individual nodes
+    const n = grandkidsVisible.length;
+    const start = -(n - 1) / 2 * GAP;
+    grandkidsVisible.forEach((gid: any, i: number) => {
+      coords.set(gid, { x: start + i * GAP, y: Y.GC });
+    });
+  } else if (grandkidsVisible.length > 0) {
+    // Show grandchildren as cluster
     coords.set(ID_GCK, { x: 0, y: Y.GC });
   }
 
@@ -254,26 +314,74 @@ function layoutFiveTier(
   if (coords.has(ID_INLAWS)) explicit.add(ID_INLAWS);
   if (coords.has(ID_GPS_F)) explicit.add(ID_GPS_F);
   if (coords.has(ID_GPS_M)) explicit.add(ID_GPS_M);
-  if (coords.has(ID_GCK)) explicit.add(ID_GCK);
+  
+  // Add grandchildren cluster or individual grandchildren based on expansion state
+  if (expandedClusters.has(ID_GCK)) {
+    // Add individual grandchildren nodes
+    grandkidsVisible.forEach((gid: any) => explicit.add(gid));
+  } else if (coords.has(ID_GCK)) {
+    // Add cluster node
+    explicit.add(ID_GCK);
+  }
 
-  // Build filtered edges (only direct relationships)
-  const edges: any[] = [];
+        // Build filtered edges (only direct relationships)
+        const edges: any[] = [];
 
-  (data.edges || []).forEach((e: any) => {
-    if (!e || e.source === e.target) return;
-    if (!explicit.has(e.source) || !explicit.has(e.target)) return;
+        (data.edges || []).forEach((e: any) => {
+          if (!e || e.source === e.target) return;
+          if (!explicit.has(e.source) || !explicit.has(e.target)) return;
 
-    const T = String(e.type || "").toUpperCase();
-    if (T === "CHILD_OF") {
-      const ps = parentsOf.get(e.source) || new Set();
-      if (ps.has(e.target)) {
-        edges.push({ source: e.source, target: e.target, type: "CHILD_OF" });
-      }
-    } else if (T === "SPOUSE_OF") {
-      const sp = spousesOf.get(e.source) || new Set();
-      if (sp.has(e.target)) {
-        edges.push({ source: e.source, target: e.target, type: "SPOUSE_OF" });
-      }
+          const T = String(e.type || "").toUpperCase();
+          if (T === "CHILD_OF") {
+            const ps = parentsOf.get(e.source) || new Set();
+            if (ps.has(e.target)) {
+              // Preserve parent_sex to identify mother-child relationships
+              edges.push({ 
+                source: e.source, 
+                target: e.target, 
+                type: "CHILD_OF",
+                parent_sex: e.parent_sex || null
+              });
+            }
+          } else if (T === "SPOUSE_OF") {
+            const sp = spousesOf.get(e.source) || new Set();
+            if (sp.has(e.target)) {
+              // Preserve relationship_status for divorced/inactive spouses
+              // Always include spouse edges - they're critical for visualization
+              edges.push({ 
+                source: e.source, 
+                target: e.target, 
+                type: "SPOUSE_OF",
+                relationship_status: e.relationship_status || "active"
+              });
+            }
+          } else if (T === "SIBLING_OF") {
+            // Include sibling edges - they show the connected graph of siblings
+            // Check if both nodes are in explicit set
+            if (explicit.has(e.source) && explicit.has(e.target)) {
+              edges.push({ 
+                source: e.source, 
+                target: e.target, 
+                type: "SIBLING_OF"
+              });
+            }
+          }
+        });
+
+  // Ensure all spouse pairs have edges (in case they weren't in the data edges)
+  spousesArr.forEach((spouse: any) => {
+    const hasEdge = edges.some(
+      (e: any) => 
+        e.type === "SPOUSE_OF" && 
+        ((e.source === root && e.target === spouse) || (e.source === spouse && e.target === root))
+    );
+    if (!hasEdge && explicit.has(root) && explicit.has(spouse)) {
+      edges.push({
+        source: root,
+        target: spouse,
+        type: "SPOUSE_OF",
+        relationship_status: "active"
+      });
     }
   });
 
@@ -293,7 +401,95 @@ function layoutFiveTier(
       edges.push({ source: ID_INLAWS, target: root, type: "IN_LAW" });
     }
   }
-  if (coords.has(ID_GCK)) {
+
+  // Indirect siblings (half-siblings): share one parent but not both -> dotted grey line
+  // We add these only when no explicit sibling edge exists between the pair.
+  const halfSiblingPairs = new Set<string>();
+  const hasSiblingEdge = (a: any, b: any) =>
+    (data.edges || []).some(
+      (e: any) =>
+        e &&
+        e.type === "SIBLING_OF" &&
+        ((e.source === a && e.target === b) || (e.source === b && e.target === a))
+    );
+
+  const isClusterId = (id: any) =>
+    typeof id === "string" && id.startsWith("__cluster_");
+
+  const motherOf = (id: any) =>
+    Array.from(parentsOf.get(id) || []).find(
+      (p: any) => ((idMap.get(p) as any)?.sex || "").toUpperCase() === "F"
+    );
+  const fatherOf = (id: any) =>
+    Array.from(parentsOf.get(id) || []).find(
+      (p: any) => ((idMap.get(p) as any)?.sex || "").toUpperCase() === "M"
+    );
+
+  const explicitPeople = Array.from(explicit).filter((id: any) => !isClusterId(id));
+  explicitPeople.forEach((p1: any, idx: number) => {
+    for (let j = idx + 1; j < explicitPeople.length; j++) {
+      const p2 = explicitPeople[j];
+      if (!p1 || !p2) continue;
+
+      const parents1 = parentsOf.get(p1) || new Set();
+      const parents2 = parentsOf.get(p2) || new Set();
+      const sharedParents = new Set([...parents1].filter((p: any) => parents2.has(p)));
+
+      if (sharedParents.size === 0) continue; // no shared parent
+      const sameMother = motherOf(p1) && motherOf(p1) === motherOf(p2);
+      const sameFather = fatherOf(p1) && fatherOf(p1) === fatherOf(p2);
+      const bothParentsShared = sameMother && sameFather;
+
+      // Already direct siblings or explicit sibling edge -> skip
+      if (bothParentsShared || hasSiblingEdge(p1, p2)) continue;
+
+      // Half-sibling: share at least one parent but not both
+      const key = [p1, p2].sort().join("-");
+      if (halfSiblingPairs.has(key)) continue;
+      halfSiblingPairs.add(key);
+      edges.push({ source: p1, target: p2, type: "HALF_SIBLING_OF" });
+    }
+  });
+
+  // Cousin connections (indirect siblings) - grey dotted lines
+  // Find cousins: people who share grandparents but are not direct siblings
+  const cousinPairs = new Set();
+  Array.from(explicit).forEach((person1: any) => {
+    if (person1 === root) return; // Skip root
+
+    Array.from(explicit).forEach((person2: any) => {
+      if (person2 === root || person1 >= person2) return; // Skip root and avoid duplicates
+
+      // Check if they are cousins: share grandparents but not parents
+      const grandparents1 = gpOf(person1, parentsOf);
+      const grandparents2 = gpOf(person2, parentsOf);
+
+      // Check if they share at least one grandparent
+      const sharedGrandparents = new Set([...grandparents1].filter(g => grandparents2.has(g)));
+      const hasSharedGrandparent = sharedGrandparents.size > 0;
+
+      // Check if they are direct siblings (share parents)
+      const parents1 = parentsOf.get(person1) || new Set();
+      const parents2 = parentsOf.get(person2) || new Set();
+      const sharedParents = new Set([...parents1].filter(p => parents2.has(p)));
+      const areDirectSiblings = sharedParents.size > 0;
+
+      // They are cousins if they share grandparents but not parents
+      if (hasSharedGrandparent && !areDirectSiblings) {
+        const pairKey = [person1, person2].sort().join('-');
+        if (!cousinPairs.has(pairKey)) {
+          cousinPairs.add(pairKey);
+          edges.push({
+            source: person1,
+            target: person2,
+            type: "COUSIN_OF"
+          });
+        }
+      }
+    });
+  });
+  // Grandchildren cluster edges - only if cluster is not expanded
+  if (coords.has(ID_GCK) && !expandedClusters.has(ID_GCK)) {
     const kids = Array.from(children);
     if (kids.length) {
       kids.forEach((k: any) =>
@@ -302,6 +498,24 @@ function layoutFiveTier(
     } else {
       edges.push({ source: ID_GCK, target: root, type: "DESCENDANT" });
     }
+  }
+  
+  // If grandchildren are expanded, add their CHILD_OF edges
+  if (expandedClusters.has(ID_GCK)) {
+    grandkidsVisible.forEach((gid: any) => {
+      // Find parent of this grandchild
+      const grandchildParents = parentsOf.get(gid) || new Set();
+      grandchildParents.forEach((parentId: any) => {
+        if (explicit.has(parentId)) {
+          edges.push({
+            source: gid,
+            target: parentId,
+            type: "CHILD_OF",
+            parent_sex: (idMap.get(parentId) as any)?.sex || null
+          });
+        }
+      });
+    });
   }
 
   return { coords, explicitIds: explicit, edges };
@@ -342,10 +556,13 @@ export default function FamilyGraph({
   const [isReady, setIsReady] = useState(false);
   const [currentRoot, setCurrentRoot] = useState(personId);
   const [loading, setLoading] = useState(false);
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
 
   //Sync external personId changes with internal state
   useEffect(() => {
     setCurrentRoot(personId);
+    // Reset expanded clusters when root changes
+    setExpandedClusters(new Set());
   }, [personId]);
 
   // Cluster IDs
@@ -452,7 +669,7 @@ export default function FamilyGraph({
         // Create graph
         const graph = new Graph({ multi: false, allowSelfLoops: false });
 
-        // Build adjacency
+        // Build adjacency (includes siblings)
         const adj = buildAdj(treeData);
 
         // Compute layout
@@ -466,7 +683,8 @@ export default function FamilyGraph({
           ID_INLAWS,
           ID_GPS_M,
           ID_GPS_F,
-          ID_GCK
+          ID_GCK,
+          expandedClusters
         );
 
         const idMap = new Map(treeData.nodes.map((n: any) => [n.id, n]));
@@ -541,19 +759,65 @@ export default function FamilyGraph({
             );
             p.setAttribute("d", path);
             p.setAttribute("fill", "none");
-            p.setAttribute(
-              "stroke",
-              e.type === "SPOUSE_OF" ? "#bf7f00" : "#aeb4bd"
-            );
-            p.setAttribute("stroke-width", "2");
-            p.setAttribute("stroke-linecap", "round");
             
-            // Add dashed stroke for inactive spouse relationships
-            if (e.type === "SPOUSE_OF" && e.relationship_status === "inactive") {
-              p.setAttribute("stroke-dasharray", "5,5");
-              p.setAttribute("opacity", "0.6");
+            // Determine edge styling based on type and relationship
+            if (e.type === "SPOUSE_OF") {
+              // Spouse edges: gold color, dashed if inactive/divorced
+              p.setAttribute("stroke", "#bf7f00");
+              p.setAttribute("stroke-width", "2.5");
+              if (e.relationship_status === "inactive") {
+                p.setAttribute("stroke-dasharray", "6,4");
+                p.setAttribute("opacity", "0.5");
+              }
+            } else if (e.type === "CHILD_OF") {
+              // Child-parent edges: golden color for mother-child, gray for father-child
+              const isMother = e.parent_sex === "F" || e.parent_sex === "f";
+              if (isMother) {
+                // Mother-child edges: golden color like spouse edges
+                p.setAttribute("stroke", "#bf7f00");
+                p.setAttribute("stroke-width", "2.5");
+              } else {
+                // Father-child edges: standard gray
+                p.setAttribute("stroke", "#aeb4bd");
+                p.setAttribute("stroke-width", "2");
+              }
+            } else if (e.type === "SIBLING_OF") {
+              // Check if these are step-siblings by looking at kin field
+              const sourceNode = idMap.get(e.source) as any;
+              const targetNode = idMap.get(e.target) as any;
+              const sourceKin = (sourceNode?.kin || "").toLowerCase();
+              const targetKin = (targetNode?.kin || "").toLowerCase();
+              const isStepSibling = sourceKin.startsWith("step-") || targetKin.startsWith("step-");
+
+              if (isStepSibling) {
+                // Step-sibling edges: dotted grey lines
+                p.setAttribute("stroke", "#aeb4bd");
+                p.setAttribute("stroke-width", "2");
+                p.setAttribute("stroke-dasharray", "4,3");
+              } else {
+                // Regular sibling edges: solid grey lines
+                p.setAttribute("stroke", "#aeb4bd");
+                p.setAttribute("stroke-width", "2");
+              }
+            } else if (e.type === "HALF_SIBLING_OF") {
+              // Indirect siblings (half-siblings): more pronounced dotted grey
+              p.setAttribute("stroke", "#aeb4bd");
+              p.setAttribute("stroke-width", "2");
+              p.setAttribute("stroke-dasharray", "6,6");
+              p.setAttribute("opacity", "0.85");
+            } else if (e.type === "COUSIN_OF") {
+              // Cousin edges (indirect siblings): grey dotted lines
+              p.setAttribute("stroke", "#aeb4bd");
+              p.setAttribute("stroke-width", "1.5");
+              p.setAttribute("stroke-dasharray", "3,2");
+              p.setAttribute("opacity", "0.7");
+            } else {
+              // Other edge types: standard gray
+              p.setAttribute("stroke", "#aeb4bd");
+              p.setAttribute("stroke-width", "2");
             }
             
+            p.setAttribute("stroke-linecap", "round");
             svg.appendChild(p);
           });
         };
@@ -615,11 +879,80 @@ export default function FamilyGraph({
               cursor: pointer;
             `;
 
-            // Card click handler - navigate to new person
+            // Card click handler - navigate to new person or expand cluster
             el.onclick = async (ev: MouseEvent) => {
               ev.preventDefault();
               ev.stopPropagation();
-              if (loading || isCluster) return;
+              
+              // Handle cluster expansion
+              if (isCluster) {
+                if (loading) return;
+                
+                // Toggle cluster expansion
+                const newExpanded = new Set(expandedClusters);
+                if (newExpanded.has(id)) {
+                  newExpanded.delete(id);
+                } else {
+                  newExpanded.add(id);
+                }
+                setExpandedClusters(newExpanded);
+                
+                // Rebuild layout with expanded clusters
+                const newAdj = buildAdj(treeData);
+                const newLayout = layoutFiveTier(
+                  treeData,
+                  newAdj,
+                  currentRoot,
+                  UNIT,
+                  GAP,
+                  Y,
+                  ID_INLAWS,
+                  ID_GPS_M,
+                  ID_GPS_F,
+                  ID_GCK,
+                  newExpanded
+                );
+                
+                // Update graph nodes
+                const existingNodes = new Set(graph.nodes());
+                const newNodes = new Set(newLayout.explicitIds);
+                
+                // Remove nodes that are no longer visible
+                existingNodes.forEach((nodeId: string) => {
+                  if (!newNodes.has(nodeId)) {
+                    graph.dropNode(nodeId);
+                  }
+                });
+                
+                // Add new nodes
+                newLayout.explicitIds.forEach((nid: any) => {
+                  if (!existingNodes.has(nid)) {
+                    const c = newLayout.coords.get(nid) || { x: 0, y: 0 };
+                    graph.addNode(nid, {
+                      x: c.x * UNIT,
+                      y: c.y * UNIT,
+                      size: 8,
+                      color: "#00000000",
+                    });
+                  } else {
+                    // Update position of existing nodes
+                    const c = newLayout.coords.get(nid) || { x: 0, y: 0 };
+                    graph.setNodeAttribute(nid, "x", c.x * UNIT);
+                    graph.setNodeAttribute(nid, "y", c.y * UNIT);
+                  }
+                });
+                
+                // Update layout reference
+                Object.assign(layout, newLayout);
+                
+                // Re-center and redraw
+                centerCamera();
+                renderer.refresh();
+                draw();
+                return;
+              }
+              
+              if (loading) return;
 
               // 🔥 NEW: If clicking same person, just notify parent to update details
               if (id === currentRoot) {
@@ -638,6 +971,7 @@ export default function FamilyGraph({
               // 🔥 FALLBACK: Self-contained behavior (original logic)
               setLoading(true);
               setCurrentRoot(id);
+              setExpandedClusters(new Set()); // Reset clusters when navigating
 
               try {
                 const apiUrl =
@@ -664,7 +998,8 @@ export default function FamilyGraph({
                   ID_INLAWS,
                   ID_GPS_M,
                   ID_GPS_F,
-                  ID_GCK
+                  ID_GCK,
+                  expandedClusters
                 );
                 const newIdMap = new Map(
                   newData.nodes.map((n: any) => [n.id, n])
@@ -853,10 +1188,28 @@ export default function FamilyGraph({
         document
           .getElementById("fullscreen-btn")
           ?.addEventListener("click", () => {
+            // Guard against detached elements to avoid "Element is not connected"
+            if (!graphContainer || !graphContainer.isConnected) return;
+
             if (!document.fullscreenElement) {
-              graphContainer.requestFullscreen();
+              if (typeof graphContainer.requestFullscreen === "function") {
+                graphContainer.requestFullscreen()
+                  .then(() => {
+                    // After entering fullscreen, fit to screen
+                    setTimeout(() => {
+                      centerCamera();
+                      renderer.refresh();
+                      draw();
+                    }, 50);
+                  })
+                  .catch(() => {
+                    // swallow to avoid runtime errors on browsers that block fullscreen
+                  });
+              }
             } else {
-              document.exitFullscreen();
+              if (typeof document.exitFullscreen === "function") {
+                document.exitFullscreen().catch(() => {});
+              }
             }
           });
 
@@ -873,7 +1226,9 @@ export default function FamilyGraph({
         document
           .getElementById("fs-exit-btn")
           ?.addEventListener("click", () => {
-            if (document.exitFullscreen) document.exitFullscreen();
+            if (typeof document.exitFullscreen === "function") {
+              document.exitFullscreen().catch(() => {});
+            }
           });
 
         // Fullscreen visibility toggle
@@ -926,6 +1281,7 @@ export default function FamilyGraph({
     loading,
     onPersonSelect,
     onNodeClick,
+    expandedClusters,
   ]);
 
   if (error) {

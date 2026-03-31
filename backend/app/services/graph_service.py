@@ -127,14 +127,15 @@ def get_person_tree(
     WITH ego, all_nodes
 
     // === GET EDGES ===
-    // Biological CHILD_OF edges
+    // Biological CHILD_OF edges (include parent sex to identify mother)
     UNWIND all_nodes AS child
     OPTIONAL MATCH (child)-[:CHILD_OF]->(parent)
     WHERE parent IN all_nodes
     WITH ego, all_nodes, collect(DISTINCT {{
         source: child.spm_person_no,
         target: parent.spm_person_no,
-        type: 'CHILD_OF'
+        type: 'CHILD_OF',
+        parent_sex: parent.sex
     }}) AS child_edges
 
     // STEP_CHILD_OF edges
@@ -157,15 +158,32 @@ def get_person_tree(
         type: 'GUARDIAN_OF'
     }}) AS guardian_edges
 
-    // SPOUSE_OF edges (deduplicated)
+    // SIBLING_OF edges (biological siblings - share at least one parent)
     UNWIND all_nodes AS person1
-    OPTIONAL MATCH (person1)-[:SPOUSE_OF]-(person2)
-    WHERE person2 IN all_nodes AND person1.spm_person_no < person2.spm_person_no
-    WITH ego, all_nodes, child_edges, step_child_edges, guardian_edges, 
+    OPTIONAL MATCH (person1)-[:CHILD_OF]->(shared_parent)<-[:CHILD_OF]-(person2)
+    WHERE person2 IN all_nodes 
+      AND person1.spm_person_no < person2.spm_person_no
+      AND person1 <> person2
+    WITH ego, all_nodes, child_edges, step_child_edges, guardian_edges,
          collect(DISTINCT {{
             source: person1.spm_person_no,
             target: person2.spm_person_no,
-            type: 'SPOUSE_OF'
+            type: 'SIBLING_OF'
+         }}) AS sibling_edges
+
+    // SPOUSE_OF edges (deduplicated, include relationship status if available)
+    UNWIND all_nodes AS person1
+    OPTIONAL MATCH (person1)-[r:SPOUSE_OF]-(person2)
+    WHERE person2 IN all_nodes AND person1.spm_person_no < person2.spm_person_no
+    WITH ego, all_nodes, child_edges, step_child_edges, guardian_edges, sibling_edges,
+         collect(DISTINCT {{
+            source: person1.spm_person_no,
+            target: person2.spm_person_no,
+            type: 'SPOUSE_OF',
+            relationship_status: CASE 
+              WHEN r.status = 'inactive' OR r.status = 'divorced' OR r.active = false THEN 'inactive' 
+              ELSE 'active' 
+            END
          }}) AS spouse_edges
 
     // Combine all edges
@@ -173,6 +191,7 @@ def get_person_tree(
          [e IN child_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
          [e IN step_child_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
          [e IN guardian_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
+         [e IN sibling_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] +
          [e IN spouse_edges WHERE e.source IS NOT NULL AND e.target IS NOT NULL] AS edges
 
     // === DETERMINE KINSHIP ===
@@ -300,12 +319,20 @@ def get_person_tree(
 
     WITH ego, edges, collect({{
       id: n.spm_person_no,
-      label: coalesce(n.full_name, n.spm_person_no),
-      full_name: n.full_name,
-      sex: n.sex,
+      label: coalesce(n.full_name, n.name_eng, n.spm_person_no),
+      full_name: coalesce(n.full_name, n.name_eng),
+      name_eng: n.name_eng,
+      name_arabic: n.name_arabic,
+      dob: CASE WHEN n.spm_dob IS NOT NULL THEN toString(n.spm_dob) ELSE null END,
       date_of_birth: CASE WHEN n.spm_dob IS NOT NULL THEN toString(n.spm_dob) ELSE null END,
-      national_id: n.national_id,
+      unified_id: n.spm_person_no,
+      passport_no: n.passport,
       passport: n.passport,
+      contact_no: n.contact_no,
+      nationality: n.nationality,
+      gender: n.sex,
+      sex: n.sex,
+      national_id: n.national_id,
       person_type: person_type,
       kin: kin
     }}) AS nodes

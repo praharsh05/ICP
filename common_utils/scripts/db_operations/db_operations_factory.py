@@ -26,10 +26,10 @@ class DBOperationsFactory:
     db_type = db_properties.get('dbtype', '').lower()
 
     if db_type in ('postgresql', 'postgres'):
-        # from .postgresql_db_operations import PostgreSqlDBOperations
         return PostgreSqlDBOperations(db_properties, spark)
     if db_type in ('oracle'):
-        # from .oracle_db_operations import OracleDBOperations
         return OracleDBOperations(db_properties, spark)
+    if db_type in ('mssql'):
+        return MSSqlServerDBOperations(db_properties, spark)
     else:
       raise ValueError(f"Unsupported database type: {db_type}")

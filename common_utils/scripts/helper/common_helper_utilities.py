@@ -15,136 +15,6 @@ logging = CommonLogging.get_logger()
 # ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** *****
 
 
-class CommonAPIUtilities:
-
-    def __init__(self):
-        pass
-
-    @staticmethod
-    def make_request(request_method, request_url, request_header, **kwargs):
-
-        request_body_data_json = kwargs.get("request_body_data_json", None)
-        request_body_data = kwargs.get("request_body_data", None)
-        request_params = kwargs.get("request_params", None)
-        sanitized_request_url = kwargs.get("sanitized_request_url", request_url)
-
-        response_output = ""
-        response_header = ""
-        response = None
-        error_details = {"error_flag": False, "error_status_code": 200, "error_msg": ""}
-
-        try:
-            logging.info(f"API request: {request_url}")
-            if request_method == 'get':
-                response = requests.get(
-                    request_url,
-                    headers=request_header, stream=True, verify=True
-                )
-            elif request_method == 'post':
-                response = requests.post(
-                    request_url,
-                    json=request_body_data_json,
-                    params=request_params,
-                    data=request_body_data,
-                    headers=request_header, stream=True, verify=True
-                )
-
-            if not response.ok:
-
-                if (response.status_code == 500 and str(response.content).__contains__("timeout exceeded") or
-                        response.status_code == 502 and str(response.content).__contains__("Bad Gateway") or
-                        response.status_code == 503 and str(response.content).__contains__("Temporarily Unavailable") or
-                        response.status_code == 500 and str(response.content).__contains__("Something went wrong")):
-                    error_msg = "API timeout exceeded / Bad Gateway / Temporarily Unavailable : %s final_api_url %s" \
-                                % (str(response.json), sanitized_request_url)
-                    logging.error(error_msg)
-
-                    error_details = {"error_flag": True,
-                                     "error_status_code": response.status_code,
-                                     "error_msg": error_msg}
-
-                else:
-
-                    error_msg = "API fetching issue (status code not ok), response_content: %s status:%s," \
-                                " request_url:%s" % (str(response.content), str(response.status_code),
-                                                     sanitized_request_url)
-                    logging.error(error_msg)
-                    raise Exception(error_msg)
-            else:
-                response_output = response.content
-                response_header = response.headers
-
-            return response_header, response_output, error_details
-        except Exception as e:
-
-            response_content = str(response.content) if response is not None else None
-            response_header = str(response.headers) if response is not None else None
-            response_status_code = str(response.status_code) if response is not None else None
-
-            err_msg = "API fetching issue (exception), Error: %s, status:%s," \
-                      " response.headers: %s," \
-                      " response_content: %s" % (str(e), response_status_code, response_header, response_content)
-
-            if str(e).lower().__contains__("InvalidChunkLength".lower()) or str(e).lower().__contains__(
-                    "failed to establish".lower()) or str(e).lower().__contains__("ProxyError".lower()):
-                error_details = {
-                    "error_flag": True, "error_status_code": response_status_code, "error_msg": str(e)
-                }
-
-                logging.error(err_msg)
-                return response_header, response_content, error_details
-            else:
-                logging.error(err_msg)
-                raise Exception(err_msg)
-
-    @staticmethod
-    def get_api_data(request_url, request_header, **kwargs):
-        request_method = kwargs.get("request_method", "get")
-        request_body_data_json = kwargs.get("request_body_data_json", None)
-        request_body_data = kwargs.get("request_body_data", None)
-        request_params = kwargs.get("request_params", None)
-        request_max_retries = kwargs.get("request_max_retries", 5)
-        request_retry_delay_time = kwargs.get("request_retry_delay_time", 120)
-        sanitized_request_url = kwargs.get("sanitized_request_url", request_url)  # Print URL in the Log without key
-        request_response_decode_flag = kwargs.get("request_response_decode_flag", True)
-
-        response_header, response_output, error_details = CommonAPIUtilities.make_request(
-            request_method, request_url, request_header, request_body_data_json=request_body_data_json,
-            request_body_data=request_body_data, request_params=request_params)
-        retry_count = 1
-        while error_details["error_flag"]:
-            time.sleep(request_retry_delay_time)
-            response_header, response_output, error_details = CommonAPIUtilities.make_request(
-                request_method, request_url, request_header, request_body_data_json=request_body_data_json,
-                request_body_data=request_body_data, request_params=request_params)
-
-            if retry_count > request_max_retries:
-                raise Exception(" After Retries-The server encountered an error processing the request"
-                                " request_url: %s, error_status_code:%s, error_msg:%s"
-                                % (sanitized_request_url, str(error_details["error_status_code"]),
-                                   str(error_details["error_msg"])))
-            retry_count = retry_count + 1
-
-        if response_output is None or len(response_output) == 0:
-            raise Exception("Response content is empty,request_url: %s response_text: %s"
-                            % (sanitized_request_url, response_output))
-        try:
-            if request_response_decode_flag:
-                data = response_output.decode('utf-8')
-                data = data.replace("\x00", "")  # NUL char replace
-                return data
-            else:
-                return response_output
-
-        except Exception as e:
-            partial_response_output = str(response_output)[0:100] if str(response_output) is not None else None
-            err_msg = f"Data/Header to Json conversion issue, Error: {str(e)}," \
-                      f"partial_response_output: {str(partial_response_output)}," \
-                      f" request_url:{str(sanitized_request_url)}"
-            logging.error(err_msg)
-            raise Exception(err_msg)
-
-
 class CommonProcessHelperUtils:
 
     @staticmethod
@@ -182,29 +52,34 @@ class CommonProcessHelperUtils:
         # Reading Credentials
         # *********************************************************************************
     @staticmethod
-    def ensure_dependencies(sc, project_abspath, s3_bucket, minio_s3_credentials, project_dir_name="project_name"):
+    def ensure_dependencies(sc, project_abspath, s3_bucket, minio_s3_credentials, project_dir_name):
       
         # Zip and upload to S3
         zip_file_path = CommonZipHelperUtils.zip_project(project_abspath)
 
         # Upload to S3 (MinIO)
-        s3_key = f"{project_dir_name}/{project_dir_name}.zip"
+        parts = project_dir_name.strip(os.sep).split(os.sep)
+        print(f"parts: {parts}")
+        # s3_key = f"{project_dir_name}/{project_dir_name}.zip"
+        file_name = parts[1] if len(parts) > 1 else parts[0]
+        s3_key = f"{project_dir_name}/{file_name}.zip"
+
         s3_bucket  = s3_bucket.strip('/')
         
         zip_s3_file_path = f"s3://{s3_bucket}/{s3_key}"
         
-        logging.info(f"Uploaded zip file to: {zip_s3_file_path}")
 
         s3_client = CommonS3Utilities.MinioS3Client(minio_s3_credentials).minio_s3_client
         
         try:
+            logging.info(f"Uploading zip file to: {zip_s3_file_path}")
             s3_client.upload_file(zip_file_path, s3_bucket, s3_key)
         except Exception as e:
             raise Exception( "Exception occurred while uploading project zip file: %s, Error:%s " % (zip_s3_file_path, str(e)))
-        sc.addPyFile(f"{zip_s3_file_path}")
+        sc.addPyFile(f"s3a://{s3_bucket}/{s3_key}")
 
     @staticmethod
-    def initialize_read_arguments(spark_options=None, spark_context_log_level="INFO", mount_bucket_name="/workflows"):
+    def initialize_read_arguments(spark_options=None, spark_context_log_level="INFO", mount_bucket_name="/workflows/udb_incremental"):
 
         spark_app_name = sys.argv[1]
         spark = CommonProcessHelperUtils.create_spark_session(spark_app_name, spark_options)
@@ -225,12 +100,12 @@ class CommonProcessHelperUtils:
         # Reading Job args
         # *********************************************************************************
  
-        # *********************************************************************************
         # Package the project and add to the sc PyFile
         project_dir_name: str =  spark_job_args["project_dir_name"]
         if project_dir_name is None or len(project_dir_name.strip()) == 0:
             logging.error('! project_dir_name is not provided in the spark_job_args. !!!')
             raise Exception('! project_dir_name is not provided in the spark_job_args. !!!')
+        
         project_abspath = os.path.join(mount_bucket_name, spark_job_args["project_dir_name"])
        
         

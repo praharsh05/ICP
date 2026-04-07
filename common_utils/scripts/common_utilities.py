@@ -3,6 +3,8 @@ from pyspark.sql.functions import col
 from pyspark.sql import SparkSession
 from pyspark.sql.dataframe import DataFrame
 
+from dateutil.relativedelta import relativedelta
+
 class CommonLogging:
     @staticmethod
     def get_logger(log_level_str='INFO'):
@@ -33,11 +35,6 @@ def singleton(class_):
         return instances[class_]
 
     return getinstance
-
-
-# will remove later to avoid breakage
-class CommonAPIUtilities:
-    pass
 
 
 class CommonIcebergUtilities:
@@ -202,8 +199,12 @@ class CommonIcebergUtilities:
 
         from datetime import datetime
 
-        # ex_snp_tmp_str = datetime.today() - timedelta(days=1)
-        ex_snp_tmp_str = datetime.today()
+        current_timestamp = datetime.today()
+        older_than = 7
+        retention_unit = "days"
+
+        ex_snp_tmp_str = (current_timestamp - relativedelta(**{retention_unit: older_than})).strftime("%Y-%m-%d %H:%M:%S")
+
         ib_expire_snapshot_query_stmt = "CALL {}.system.expire_snapshots(table => '{}', older_than => TIMESTAMP '{}'," \
                                         " retain_last => 1, stream_results => true)".format(catalog,
                                                                                             fq_table, ex_snp_tmp_str)
@@ -252,23 +253,25 @@ class CommonIcebergUtilities:
 
     @staticmethod
     def iceberg_load_operation(spark, output_wh_table_load_strategy, data_df, output_warehouse_fq_table,
-                               script_adding_columns, merge_data_join_fields=None):
+                               script_adding_columns, merge_data_join_fields=None, input_schema= None
+                               , is_repartition_needed= False, repartition_col: str = None):
 
         table_catalog, table_schema, table = output_warehouse_fq_table.split(".")
         logging.info(f">> >>Table info - {output_warehouse_fq_table}")
 
         table_col_info = CommonIcebergUtilities.get_tbl_column_info_select(spark, output_warehouse_fq_table)
 
-        logging.info("Table columns info: {}".format(table_col_info)) #TODO
+        logging.info("Table columns info: {}".format(table_col_info))
+    
         
         casted_columns = CommonIcebergUtilities.cast_tbl_columns(table_column_info=table_col_info)
-        logging.info("Casted table columns: {}".format(casted_columns)) 
+        logging.info("Casted table columns: {}".format(casted_columns))
+
+        # Re-ordering of columns as per table
+        data_df = data_df.select(*casted_columns)
 
         if output_wh_table_load_strategy.lower() == "insert_overwrite":
             logging.info(">> >> >> >> Loading table data - INSERT_OVERWRITE")
-
-            # Re-ordering of columns as per table
-            data_df = data_df.select(*casted_columns)
 
             data_df.write.format("iceberg").mode("overwrite").save(output_warehouse_fq_table)
 
@@ -276,16 +279,19 @@ class CommonIcebergUtilities:
 
         elif output_wh_table_load_strategy.lower() == "merge_insert":
             logging.info(">> >> >> >> Loading table data - MERGE_INSERT")
-            if merge_data_join_fields is None:
+            if merge_data_join_fields is None or not merge_data_join_fields:
                 merge_data_join_fields = [x for x in data_df.columns if x not in script_adding_columns]
 
+            logging.info(">> >> >> >> merge_data_join_fields: {}".format(merge_data_join_fields))
             CommonIcebergUtilities.merge_insert_process(spark, data_df, table_catalog, table_schema, table,
                                                         merge_data_join_fields)
 
         elif output_wh_table_load_strategy.lower() == "merge_upsert":
             logging.info(">> >> >> >> Loading table data - MERGE_UPSERT")
-            if merge_data_join_fields is None:
+            if merge_data_join_fields is None or not merge_data_join_fields:
                 merge_data_join_fields = [x for x in data_df.columns if x not in script_adding_columns]
+
+            logging.info(">> >> >> >> merge_data_join_fields: {}".format(merge_data_join_fields))
 
             data_df = data_df.sortWithinPartitions(*merge_data_join_fields)
             CommonIcebergUtilities.merge_upsert_process(spark, data_df, table_catalog, table_schema, table,
@@ -293,11 +299,10 @@ class CommonIcebergUtilities:
 
         elif output_wh_table_load_strategy.lower() == "append":
             logging.info(">> >> >> >> Loading table data - APPEND")
-
-            # Re-ordering of columns as per table
-            data_df = data_df.select(*casted_columns)
+            if is_repartition_needed and repartition_col:
+                data_df = data_df.repartition(f"{repartition_col}")
+            data_df.writeTo(output_warehouse_fq_table).option("fanout-enabled","true").option("distribution-mode", "none").append()
             
-            data_df.writeTo(output_warehouse_fq_table).append()
 
         else:
             raise Exception(
@@ -328,11 +333,23 @@ class CommonIcebergUtilities:
         return table_col_info
 
     @staticmethod
-    def cast_tbl_columns(table_column_info):
+    def cast_tbl_columns(table_column_info, input_schema= None):
         # Now, cast the columns of data_df according to the table column info
         casted_columns = []
 
         # Loop through each column and cast it to the corresponding type
+        if input_schema:
+            #if input_schema is provided in the config file --maybe used for col name or type transformation.
+            logging.info(">> >> input_schema: {}".format(input_schema))
+            for _, value in input_schema.items():
+                source_col  = value["source"]
+                target_col  = value["target"]
+                target_type  = value["target_type"]
+                if target_type:
+                    target_type  = target_type.upper()
+                casted_columns.append(col(source_col).cast(target_type).alias(target_col))
+            return casted_columns
+        
         for column_name, column_type in table_column_info.items():
             # Cast the column based on the type from the Iceberg table schema
             casted_columns.append(col(column_name).cast(column_type).alias(column_name))
@@ -344,35 +361,64 @@ class CommonIcebergUtilities:
         database, table_name = output_warehouse_fq_table.rsplit(".", 1)
         logging.info(f"Schema info -> {database}")
         df = spark.sql(f"SHOW TABLES IN {database}")
+
+        logging.info(">> >> Tables in schema: {}".format(database))
         df.show(20)
         return table_name in df.select("tableName").rdd.flatMap(lambda x: x).collect()
     
     @staticmethod
-    def create_table(output_warehouse_fq_table: str, spark: SparkSession, data_df: DataFrame, catalog_minio_bucket:str = None, location:str = None):
+    def create_table(output_warehouse_fq_table: str, spark: SparkSession, data_df: DataFrame = None,
+                      catalog_minio_bucket:str = None, location:str = None, 
+                      target_schema_fields = None, column_defs = None, is_oracle_debezium_iceberg_pipeline= None, repartition_col=None):
 
          # Get the schema from the DataFrame
         if not catalog_minio_bucket:
             raise Exception("Catalog MinIO bucket name must not be null or empty to create table!!!!")
         
-        schema_fields = []
-        for field in data_df.schema.fields:
-            col_name = field.name
-            col_type = field.dataType.simpleString().upper()  # Convert Spark SQL type to uppercase
-            schema_fields.append(f"{col_name} {col_type}")
-            
+        if column_defs is None:
+            column_defs = []
+            if target_schema_fields:
+                for col_name, col_type in target_schema_fields.items():
+                    column_defs.append("{} {}".format(col_name, col_type.upper()))
+            else:
+
+                for field in data_df.schema.fields:
+                    col_name = field.name
+                    col_type = field.dataType.simpleString()
+
+                    # 
+                    # if col_type.lower().startswith('decimal'): #TODO
+                    #     col_type = "double"
+                    # if col_type.lower().startswith('timestamp'): #TODO
+                    #     col_type = "long"
+                    col_type = col_type.upper()  # Convert Spark SQL type to uppercase
+                    column_defs.append(f"{col_name} {col_type}")
+                
+
+        if is_oracle_debezium_iceberg_pipeline:
+            # Extra columns from debezium __table,__source_ts_ms,__db
+            #TODO 
+            extra_columns = {"__table":"string","__source_ts_ms":"timestamp","__db":"string"}
+            for col_name, col_type in extra_columns.items():
+                if not any(col_name.upper() in field.upper() for field in column_defs):
+                    column_defs.append(f"{col_name} {col_type}")
+
         # Add 'ingested_at TIMESTAMP' if not already present
-        if not any("INGESTED_AT" in field.upper() for field in schema_fields):
-            schema_fields.append("ingested_at TIMESTAMP")
-            
-        logging.info(""">>Table schema: {}""".format(schema_fields))
+        if not any("INGESTED_AT" in field.upper() for field in column_defs):
+            column_defs.append("ingested_at TIMESTAMP")
+
+        logging.info(""">>Table schema: {}""".format(column_defs))
 
         table_catalog, table_schema, table = output_warehouse_fq_table.split(".")
         if not location:
             location = f"s3a://{catalog_minio_bucket}/{table_schema}/{table}"
-
-        query = f"""
+        
+        
+        logging.info(">> LOGGING REPARTITION COLUMN -> {}".format(repartition_col))  
+        if repartition_col is not None:
+            query = f"""
                     CREATE TABLE {output_warehouse_fq_table} (
-                        {", ".join(schema_fields)}
+                        {", ".join(column_defs)}
                     )
                     USING iceberg
                     LOCATION '{location}'  -- Specifies the table's physical location
@@ -381,7 +427,23 @@ class CommonIcebergUtilities:
                         'format-version'='2'       -- Iceberg format version
                     )
                 """
+        else:
+            query = f"""
+                    CREATE TABLE {output_warehouse_fq_table} (
+                        {", ".join(column_defs)}
+                    )
+                    USING iceberg
+                    LOCATION '{location}'  -- Specifies the table's physical location
+                    TBLPROPERTIES (
+                        'format'='parquet',        -- Storage format
+                        'format-version'='2'       -- Iceberg format version
+                    )
+                """
+            
+
+        
         # Execute SQL query
-        logging.info(f""">>Table '{output_warehouse_fq_table}' will be created at location '{location}'!!!""")
+        logging.info(f""">> >> Table '{output_warehouse_fq_table}' will be created at location '{location}'!!!""")
+        logging.info(">> >> Create Statement for the table is -> {}".format(query))
         spark.sql(query)
-        print(f"Table {output_warehouse_fq_table} created successfully.")
+        logging.info(">> >> Table {} created successfully.".format(output_warehouse_fq_table))

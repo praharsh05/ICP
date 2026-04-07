@@ -1,0 +1,69 @@
+{
+  "airflow-task-details": {
+
+   "person-node-transform-task": 
+    {
+      "spark_details": {
+        "spark_kubernetes_args": {
+          "pyspark_job_main_file_s3_path": "s3a://workflows/family_tree_data_pipeline/scripts/person_nodes.py",
+          "driver_cores": 2,
+          "driver_memory": "8g",
+          "executor_instances": 10,
+          "executor_cores": 4,
+          "executor_memory": "10g",
+          "spark_dependencies_libraries":"/workflows/sys/libs/ojdbc8.jar"
+        },
+        "spark_job_args": {
+          "project_dir_name":"family_tree_data_pipeline",
+          "parquet_path":"s3a://transformed/bv_person_domain.db/family_relations/data",
+          "hub_person_master_path":"s3a://transformed/rv_person_domain.db/hub_person master-b0f3cc89764b400080cb69520f5bc6c4",
+          "pit_person_master_path":"s3a://transformed/bv_person_domain.db/pit_person_master-6500cb8f85d4487b9bb95732bd844109",
+          "hub_person_ids_path":"s3a://transformed/rv_person_domain.db/hub_person_ids-4fdf2e2709b24b01960e2ff608e78a72",
+          "sat_person_ids_path":"s3a://transformed/rv_person_domain.db/sat_person_ids-c7f9ff40a97e47bfa13aaedd2d8916f8",
+          "pit_echannel_request_master_path":"s3a://transformed/bv_person_domain.db/pit_echannel_request_master------ Need to check this path", 
+          "output_path":"s3a://workflows/family_tree_data_pipeline/csv"
+        }
+      }
+    },
+    "relationship-builder-task": 
+    {
+      "spark_details": {
+        "spark_kubernetes_args": {
+          "pyspark_job_main_file_s3_path": "s3a://workflows/family_tree_data_pipeline/scripts/relationship_builder.py",
+          "driver_cores": 2,
+          "driver_memory": "8g",
+          "executor_instances": 10,
+          "executor_cores": 4,
+          "executor_memory": "10g",
+          "spark_dependencies_libraries":"/workflows/sys/libs/ojdbc8.jar"
+        },
+        "spark_job_args": {
+          "project_dir_name":"family_tree_data_pipeline",
+          "source_path":":s3a://transformed/bv_person_domain.db/family_relations-555442bfa2c84c1fa5aa31c61c7789f4", 
+          "persons_path":"s3a://workflows/family_tree_data_pipeline/csv",
+          "output_path":"s3a://workflows/family_tree_data_pipeline/csv/relationships"
+        }
+      }
+    }
+    
+  },
+  
+  
+
+  "airflow-task-dependencies-details": 
+  {
+    "parent-child-relation":
+    {
+		  "person-node-transform-task": ["start"],
+      "relationship-builder-task": ["person-node-transform-task"],
+      "end":
+      [
+				"relationship-builder-task"
+		  ]
+    }
+  },
+  "airflow-dag-details": {
+    "dag_id": "family_tree_data_pipeline_dag",
+    "dag_description": "Create person node and transform relationships for neo4j"
+  }
+}  

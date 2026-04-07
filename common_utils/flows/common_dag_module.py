@@ -125,7 +125,7 @@ class KubernetesSparkSetup:
      
     @staticmethod
     def build_k8s_pyspark_configuration(spark_app_name, spark_kubernetes_job_args, spark_job_args, airflow_var_globals,
-                                        airflow_var_dag_details, job_arguments=[]):
+                                        airflow_var_dag_details, job_arguments=[], dag_id=None):
         import json
 
         # Update default values for Spark job submission on Kubernetes
@@ -140,6 +140,28 @@ class KubernetesSparkSetup:
 
         cluster_details_spark_args = KubernetesSparkSetup.create_cluster_details_spark_args(airflow_var_globals,
                                                                                             airflow_var_dag_details)
+        spark_job_args["dag_id"] = dag_id   
+
+        # TODO: Valut integration
+        """ 1. under spark_job_args: there is 'udb_password' for source db access.
+            2. access key and secret key for s3.
+            3. if vault integration is not enabled, disable the below lines of code
+            
+        """
+        #Beginning of reading credentials from Valut Service
+        password_key = 'apisearch_password'
+        
+        source_db_password = Variable.get(password_key, None)
+        s3_access_key = Variable.get('s3_access_key', None)
+        s3_secret_access_key = Variable.get('s3_secret_access_key', None)
+
+        #spark_job_args['db_details']['password'] = source_db_password
+        airflow_var_globals["s3_access_key"] = s3_access_key
+        airflow_var_globals["s3_secret_access_key"] =s3_secret_access_key
+
+        #End of Valut integration
+
+        
         hadoop_custom_arguments = {
             "spark_job_args": spark_job_args, "cluster_details_spark_args": cluster_details_spark_args
         }
@@ -148,6 +170,7 @@ class KubernetesSparkSetup:
         catalog_minio_bucket = cluster_details_spark_args["catalog_minio_bucket"] if cluster_details_spark_args["catalog_minio_bucket"] else None
 
         hadoop_custom_arguments["spark_job_args"]['catalog_minio_bucket'] = catalog_minio_bucket
+      
 
         k8s_configuration = {
             "apiVersion": "sparkoperator.k8s.io/v1beta2", "kind": "SparkApplication", "metadata": {
@@ -178,7 +201,7 @@ class KubernetesSparkSetup:
                         "memory": KubernetesSparkSetup.handle_min_resources(spark_kubernetes_job_args)[1]
                     }
                 }, "restartPolicy": {
-                    "type": "Never"
+                    "type": "OnFailure"
                 }, "timeToLiveSeconds": airflow_var_globals["k8s_pod_ttl"],
 
                 "volumes": [
@@ -200,7 +223,8 @@ class KubernetesSparkSetup:
                                     }
                                 ]
                             }
-                        },
+                        }
+                        , 
                         {
                             "name": airflow_var_globals["volume_details"]["key_store_volume_name"],
                             "configMap": {
@@ -232,7 +256,8 @@ class KubernetesSparkSetup:
                         "mountPath": airflow_var_globals["volume_details"]["ca_bundle_volume_mount_path"],
                         "subPath": airflow_var_globals["volume_details"]["ca_bundle_volume_mount_sub_path"],
                         "name": airflow_var_globals["volume_details"]["ca_bundle_volume_name"]
-                    }, {
+                    }
+                    , {
                             "mountPath": airflow_var_globals["volume_details"]["key_store_volume_mount_path"],
                             "subPath": airflow_var_globals["volume_details"]["key_store_volume_mount_sub_path"],
                             "name": airflow_var_globals["volume_details"]["key_store_volume_name"]
@@ -242,6 +267,9 @@ class KubernetesSparkSetup:
                        "JAVA_OPTS": f"$JAVA_OPTS -Djavax.net.ssl.trustStore= {airflow_var_globals['volume_details']['key_store_volume_mount_path']}",
                         "REQUESTS_CA_BUNDLE": airflow_var_globals["volume_details"]["ca_bundle_volume_mount_path"]
 
+                    },
+                    "nodeSelector": {
+                        "role": "compute"
                     }
                     
 
@@ -273,6 +301,9 @@ class KubernetesSparkSetup:
                        "JAVA_OPTS": f"$JAVA_OPTS -Djavax.net.ssl.trustStore= {airflow_var_globals['volume_details']['key_store_volume_mount_path']}",
                         "REQUESTS_CA_BUNDLE": airflow_var_globals["volume_details"]["ca_bundle_volume_mount_path"]
 
+                    },
+                    "nodeSelector": {
+                        "role": "compute"
                     }
 
                 }, "sparkConf": {
@@ -300,9 +331,7 @@ class KubernetesSparkSetup:
                 }
             }
         }
-        #TODO:
-        print(f"This is the catalog result: {catalog}")
-     
+
         return k8s_configuration
 
 
@@ -317,7 +346,7 @@ class BuildDagTaskGroup:
         return task_args_details
     @staticmethod
     def build_spark_details(dag, task_group_key, task_details_key, airflow_task_details, airflow_var_globals,
-                            airflow_var_dag_details, common_arguments):
+                            airflow_var_dag_details, common_arguments, dag_id):
         # Custom spark operator import
         from common_utils.flows.custom_operator import CustomSparkKubernetesSubmitMonitor
         airflow_tasks_list = []
@@ -325,17 +354,25 @@ class BuildDagTaskGroup:
         spark_job_args = airflow_task_details[task_group_key][task_details_key].get("spark_job_args", {})
         task_args_details = BuildDagTaskGroup.get_task_args_details(airflow_task_details[task_group_key].get("task_args", {}))
 
-        # Adding Common Arguments to Spark Arguments
-        for common_args_key in common_arguments.keys():
-            if common_args_key not in spark_job_args.keys():
-                spark_job_args[common_args_key] = common_arguments[common_args_key]
+        # Merge common Spark job args
+        for key, value in common_arguments.get("common_spark_job_args", {}).items():
+            if key not in spark_job_args:
+                spark_job_args[key] = value
+        
+        # Merge common Spark Kubernates args   
+        for key, value in common_arguments.get("common_spark_kubernetes_args", {}).items():
+
+            if key not in spark_kubernetes_args:
+                spark_kubernetes_args[key] = value
 
         # ********* getting meta store details *********************************************
 
         spark_submit_application_config = KubernetesSparkSetup.build_k8s_pyspark_configuration(
-            "{}".format(task_group_key), spark_kubernetes_args, spark_job_args, airflow_var_globals,
-            airflow_var_dag_details,
-            job_arguments=["{}".format(task_group_key)])
+                    "{}".format(task_group_key), spark_kubernetes_args, spark_job_args, airflow_var_globals,
+                    airflow_var_dag_details,
+                    job_arguments=["{}".format(task_group_key)],
+                    dag_id=dag_id
+            )
         app_file  = yaml.dump(spark_submit_application_config)
         spark_kubernetes_operator_args = {
             "namespace": airflow_var_globals["k8s_namespace"],
@@ -454,26 +491,26 @@ class DagCommons:
         return dag_default_args
 
     # @staticmethod
-    # def update_task_mail_alerts(airflow_var_dag_details, dag_default_args, airflow_var_globals):
+    def update_task_mail_alerts(airflow_var_dag_details, dag_default_args, airflow_var_globals):
 
-    #     task_status_mail_flag = DagCommons.format_boolean_value(airflow_var_dag_details.get("task_status_mail_flag"),
-    #                                                             True)
+        task_status_mail_flag = DagCommons.format_boolean_value(airflow_var_dag_details.get("task_status_mail_flag"),
+                                                                True)
 
-    #     if task_status_mail_flag:
+        if task_status_mail_flag:
 
-    #         from common_utils.flows.email_alert_notification import EmailAlert
-    #         on_failure_callback = EmailAlert.on_failure_callback(dag_default_args.get('email_to'),
-    #                                                              airflow_var_globals.get('airflow_url'))
-    #         on_retry_callback = EmailAlert.on_retry_callback(dag_default_args.get('email_to'),
-    #                                                          airflow_var_globals.get('airflow_url'))
-    #         on_success_callback = EmailAlert.on_success_callback(dag_default_args.get('email_to'),
-    #                                                              airflow_var_globals.get('airflow_url'))
+            from common_utils.flows.email_alert_notification import EmailAlert
+            on_failure_callback = EmailAlert.on_failure_callback(dag_default_args.get('email_to'),
+                                                                 airflow_var_globals.get('airflow_url'))
+            # on_retry_callback = EmailAlert.on_retry_callback(dag_default_args.get('email_to'),
+            #                                                  airflow_var_globals.get('airflow_url'))
+            on_success_callback = EmailAlert.on_success_callback(dag_default_args.get('email_to'),
+                                                                 airflow_var_globals.get('airflow_url'))
 
-    #         dag_default_args.update({'on_failure_callback': on_failure_callback})
-    #         dag_default_args.update({'on_retry_callback': on_retry_callback})
-    #         dag_default_args.update({'on_success_callback': on_success_callback})
+            dag_default_args.update({'on_failure_callback': on_failure_callback})
+            # dag_default_args.update({'on_retry_callback': on_retry_callback})
+            dag_default_args.update({'on_success_callback': on_success_callback})
 
-    #     return dag_default_args
+        return dag_default_args
 
     # Handle Dag Arguments
     @staticmethod
@@ -515,9 +552,10 @@ class DagCommons:
 
         configs = DagCommons.read_config_from_local(workflows_config_path)
 
-        airflow_dag_details_from_config = dict(configs["aiflow-dag-details"])
+        airflow_dag_details_from_config = dict(configs["airflow-dag-details"])
+        dag_id = airflow_dag_details_from_config["dag_id"]
 
-        airflow_var_dag_details = airflow_var_pipelines.get(airflow_dag_details_from_config["dag_id"], {})
+        airflow_var_dag_details = airflow_var_pipelines.get(dag_id, {})
 
         airflow_var_dag_details = DagCommons.update_airflow_dag_schedule_details(airflow_var_dag_details)
 
@@ -525,19 +563,19 @@ class DagCommons:
         dag_default_args = DagCommons.update_task_retries_and_retry_delay(airflow_var_dag_details, dag_default_args)
         # TODO: update_task_mail_alerts connected out temporarly 
         # dag_default_args = DagCommons.update_task_mail_alerts(airflow_var_dag_details, dag_default_args,
-                                                            #   airflow_var_globals)
+        #                                                       airflow_var_globals)
 
         dag_arguments = DagCommons.generate_dag_arguments(airflow_dag_details_from_config, airflow_var_dag_details,
                                                           dag_default_args)
 
-        return configs, airflow_var_dag_details, dag_arguments
+        return configs, airflow_var_dag_details, dag_arguments, dag_id
 
     @staticmethod
-    def build_task_group(dag, configs, airflow_var_globals, airflow_var_dag_details):
+    def build_task_group(dag, configs, airflow_var_globals, airflow_var_dag_details, dag_id):
         # ***** *****  Reading Job configuration parameters ***** ***** ***** *****
 
         airflow_task_details = configs["airflow-task-details"]
-        aiflow_task_dependencies_details = configs.get("aiflow-task-dependencies-details", {})
+        airflow_task_dependencies_details = configs.get("airflow-task-dependencies-details", {})
         common_arguments = configs.get("common-arguments", {})
 
         airflow_tasks_groups_list = []
@@ -550,7 +588,7 @@ class DagCommons:
                 if task_details_key == "spark_details":
                     tasks_list = BuildDagTaskGroup.build_spark_details(dag, task_group_key, task_details_key,
                                                                        airflow_task_details, airflow_var_globals,
-                                                                       airflow_var_dag_details, common_arguments)
+                                                                       airflow_var_dag_details, common_arguments, dag_id)
 
                 elif task_details_key == "python_details":
                     tasks_list = BuildDagTaskGroup.build_python_details(dag, task_group_key, task_details_key,
@@ -569,11 +607,11 @@ class DagCommons:
                 for task in tasks_list:
                     airflow_tasks_groups_list.append((task, task_group_key))
 
-        DagCommons.build_task_dependencies(dag, airflow_tasks_groups_list, aiflow_task_dependencies_details,
+        DagCommons.build_task_dependencies(dag, airflow_tasks_groups_list, airflow_task_dependencies_details,
                                            airflow_var_dag_details)
 
     @staticmethod
-    def build_task_dependencies(dag, airflow_tasks_groups_list, aiflow_task_dependencies_details,
+    def build_task_dependencies(dag, airflow_tasks_groups_list, airflow_task_dependencies_details,
                                 airflow_var_dag_details):
         all_nodes_list = []
         dependency_tuples_list = []
@@ -643,31 +681,8 @@ class DagCommons:
                 dependency_tuples_list.append((current_node, successor_node))
 
         def build_parent_child_dependencies():
-            config_task_names_list = []
 
-            # for task_name in aiflow_task_parent_child_dependencies.keys():
-            #     config_task_names_list.append(task_name)
-            #     config_task_names_list.append(aiflow_task_parent_child_dependencies[task_name][0])
-            #     config_task_names_list.append(aiflow_task_parent_child_dependencies[task_name][1])
-
-            # config_task_names_list = [*set(config_task_names_list)]
-
-            # TODO
-            # for task_name in config_task_names_list:
-            #     if task_name not in dag.tasks:
-            #         all_nodes_list.append((DummyOperator(task_id=task_name, dag=dag), task_name))
-
-            # for config_current_task_name in aiflow_task_parent_child_dependencies.keys():
-            #     current_node = next(node[0] for node in all_nodes_list if node[1] == config_current_task_name)
-            #     predecessor_node = next(node[0] for node in all_nodes_list if
-            #                             node[1] == aiflow_task_parent_child_dependencies[config_current_task_name][0])
-            #     successor_node = next(node[0] for node in all_nodes_list if
-            #                           node[1] == aiflow_task_parent_child_dependencies[config_current_task_name][1])
-
-            #     dependency_tuples_list.append((predecessor_node, current_node))
-            #     dependency_tuples_list.append((current_node, successor_node))
-
-            for child_task, parent_tasks in aiflow_task_parent_child_dependencies.items():
+            for child_task, parent_tasks in airflow_task_parent_child_dependencies.items():
                 child_node = next(node[0] for node in all_nodes_list if node[1] == child_task)
 
                 for parent_task in parent_tasks:
@@ -675,13 +690,13 @@ class DagCommons:
                     dependency_tuples_list.append((parent_node, child_node))
 
         # Build dependencies as per configuration
-        if aiflow_task_dependencies_details:
-            if "parent-child-relation" in aiflow_task_dependencies_details:
-                aiflow_task_parent_child_dependencies = aiflow_task_dependencies_details["parent-child-relation"]
+        if airflow_task_dependencies_details:
+            if "parent-child-relation" in airflow_task_dependencies_details:
+                airflow_task_parent_child_dependencies = airflow_task_dependencies_details["parent-child-relation"]
                 build_parent_child_dependencies()
 
-            elif "task-auto-dependencies" in aiflow_task_dependencies_details:
-                task_auto_dependencies = aiflow_task_dependencies_details["task-auto-dependencies"]
+            elif "task-auto-dependencies" in airflow_task_dependencies_details:
+                task_auto_dependencies = airflow_task_dependencies_details["task-auto-dependencies"]
                 if "trigger_order" in task_auto_dependencies and \
                         task_auto_dependencies["trigger_order"].lower() == "sequential":
                     build_sequential_dependencies()

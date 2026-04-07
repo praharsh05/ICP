@@ -1,0 +1,65 @@
+{
+  "airflow-task-details": {
+
+   "read-parquet-file-task": 
+    {
+      "spark_details": {
+        "spark_kubernetes_args": {
+          "pyspark_job_main_file_s3_path": "s3a://workflows/test_spark_read_files/scripts/sp_test_read_parquet.py",
+          "driver_cores": 1,
+          "driver_memory": "6g",
+          "executor_instances": 8,
+          "executor_cores": 4,
+          "executor_memory": "10g",
+          "spark_dependencies_libraries":"/workflows/sys/libs/ojdbc8.jar"
+        },
+        "spark_job_args": {
+          "project_dir_name":"test_spark_read_files",
+          "parquet_path":"s3a://raw/xpin.db/xpin_family_relations/data",
+          "output_path":"s3a://workflows/test_spark_read_files/csv"
+        }
+      }
+    },
+    "relationship-builder-task": 
+    {
+      "spark_details": {
+        "spark_kubernetes_args": {
+          "pyspark_job_main_file_s3_path": "s3a://workflows/test_spark_read_files/scripts/relationship_builder.py",
+          "driver_cores": 2,
+          "driver_memory": "8g",
+          "executor_instances": 10,
+          "executor_cores": 4,
+          "executor_memory": "10g",
+          "spark_dependencies_libraries":"/workflows/sys/libs/ojdbc8.jar"
+        },
+        "spark_job_args": {
+          "project_dir_name":"test_spark_read_files",
+          "source_path":"s3a://raw/xpin.db/xpin_family_relations/data",
+          "persons_path":"s3a://workflows/test_spark_read_files/csv",
+          "output_path":"s3a://workflows/test_spark_read_files/csv/relationships"
+        }
+      }
+    }
+    
+  },
+  
+  
+
+  "airflow-task-dependencies-details": 
+  {
+    "parent-child-relation":
+    {
+		  "read-parquet-file-task": ["start"],
+      "relationship-builder-task": ["read-parquet-file-task"],
+      "end":
+      [
+				"relationship-builder-task"
+		  ]
+    }
+  },
+  "airflow-dag-details": {
+    "dag_id": "test_spark_read_parquet_dag",
+    "dag_description": "Create person node and transform relationships for neo4j"
+  }
+
+}

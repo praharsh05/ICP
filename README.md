@@ -12,7 +12,7 @@
    4. [Airflow Task Args](#4-airflow-task-args)
    5. [Database Details](#5-database-details)
 4. [Usage of the Framework](#usage-of-the-framework)
-5. [Aiflow task retries](#airflow-task-retries)
+5. [airflow task retries](#airflow-task-retries)
 6. [Acknowledgmentss](#acknowledgments)
 7. [Reference](#reference)
 
@@ -35,14 +35,14 @@ With Airflow DAGs managing execution flow and Kubernetes handling Spark workload
 - Description: Description of the project (Optional)
 
 ### 2. Airflow Task Dependencies: 
-#### Execution Modes: **aiflow-task-dependencies-details**
+#### Execution Modes: **airflow-task-dependencies-details**
 By default, if not provide , it will keep all the tasks run in `Parallel`.
 
 ##### A. Sequential Execution
 For sequential execution, define:
 
 ```
-"aiflow-task-dependencies-details": {
+"airflow-task-dependencies-details": {
     "task-auto-dependencies": {
         "trigger_order": "sequential"
     }
@@ -53,7 +53,7 @@ For sequential execution, define:
 Airflow task Dependencies, Provide as parent-child relationship for every node. Below is just one example of parent-child-relation, but it can be configured in multiple ways.
 
 ```
-"aiflow-task-dependencies-details": {
+"airflow-task-dependencies-details": {
                                   "parent-child-relation":{
                                     "task1": ["start"],
                                     "task2": ["start"],
@@ -66,7 +66,7 @@ Airflow task Dependencies, Provide as parent-child relationship for every node. 
 Provide Task dependencies to run keep it as `Parallel` with config as number per each group.
 
 ```
-    "aiflow-task-dependencies-details": {
+    "airflow-task-dependencies-details": {
             "task-auto-dependencies":{"trigger_order": "parallel", "max_tasks_per_group": 3}
         }
 ```
@@ -90,6 +90,7 @@ B. `spark_job_args` - Spark job arguments.
     - If not provided or the value is other than `migration`, it will use default spark data ingestion (it will ingest dummy data)
 -  **location**: Location of the iceberg table if new table is needed to create automaticly.
     - Default location:  `s3a://{catalog_minio_bucket}/{table_schema}/{table}`
+- **auto_table_creation**: Whethere to create table automatcily if not exist, default is False.
 - **python_dependencies_base_paths**: Default python utils path will provide to spark job as dependency if not provided.
 `
 
@@ -122,12 +123,10 @@ Any task argument will be provided under the `task_args` object.
 
 ```
 "db_details": {
-    "db_properties" : {
-        "url": "jdbc:postgresql://<hostname>:<port>/<db_name",
-        "dbtype": "postgres",
-        "user": "<username>",
-        "password": "<password>"
-    },
+    "url": "jdbc:postgresql://<hostname>:<port>/<db_name",
+    "dbtype": "postgres",
+    "user": "<username>",
+    "password": "<password>",
     "db_table": "<table_name>",
     "partitioning_column": "id",
     "lower_bound": 0,
@@ -141,7 +140,10 @@ Any task argument will be provided under the `task_args` object.
 ```
 
 #### Key Parameters
-   - **db_properties**: A dictionary that includes the necessary properties to connect to the database, including url (JDBC connection string), dbtype (type of database), user (username), and password (password).
+   - **url**: JDBC connection string.
+   - **dbtype**: type of database.
+   - **user**: username.
+   - **password**: password.
    - **db_table**: The name of the table in the database that you want to migrate.
    - **partitioning_column**: The column used for partitioning the data during the migration (must be a column with numerical, date or timestamp values).
    - **lower_bound**: The minimum value in the partitioning column to start from. Supported datatypes are int,float,date,timesamp, default is int.
@@ -157,6 +159,10 @@ If the database is oracle, please use the below format or value
 - **url**: jdbc:oracle:thin:@<hostname>:<port>/<dbname>
 - **dbtype**: oracle
 
+**MS SQL Server DB:**
+If the database is mssql, please use the below format or value
+- **url**: jdbc:sqlserver://<hostname>:<port>;databaseName=<dbname>
+- **dbtype**: mssql
 
 **Default Constants:**
 Some of the parameters have default values that can be overridden by providing them in the configuration. These default values are specified in the **Constants** class:
@@ -257,14 +263,14 @@ Each batch will execute against the database one by one. However, since partitio
 5. Go to the airflow and search the dag using `dag_id` provided in the config - it might take 1-3 minutes to appear on airflow.
 6. Start the dag - If everything configured well and the `operation_type` is not `migration`, at least it should create new table (if not exist) and ingest the dammy data.
 
-7. In all cases - `migration` or `default`(ingesting dummy data), if the provided table is not availabe in the catalog, the framework will create table based on the dataframe columns and respective datatypes.
+7. In all cases - `migration` or `default`(ingesting dummy data), if the provided table is not availabe in the catalog and `auto_table_creation` is `True`, the framework will create table based on the dataframe columns and respective datatypes.
 
 8. If table exist, the framework will get the table description and cast the dataframe datatype against corrosponding columns from the table.
 
 9. If any issue faced for the `migration`, try to debug as per the airflow log. **Remember this framework is generic, you can customize the script file as per your need.**
 
 
-## Aiflow task retries:
+## airflow task retries:
 
 1. Provide retries and retry_delay at dag level (to `AIRFLOW_PIPELINES`) as below , retry_delay in seconds. Default from Airflow is 300 seconds.
         "<dag_id>": {

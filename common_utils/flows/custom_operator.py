@@ -6,6 +6,7 @@ from airflow.models import BaseOperator
 from airflow.utils.trigger_rule import TriggerRule 
 
 
+
 # Creating custom Airflow spark Kubernetes operator to handle both submit and monitor
 # ******************************************************************************************************
 

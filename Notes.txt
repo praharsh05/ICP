@@ -1,0 +1,247 @@
+The config file will contain the following:
+    - "airflow-task-details": this contains all the spark job names and details that will be executed in the Airflow DAG
+        * "spark_details"."spark_kubernetes_args": this dictionary contains the spark configs like "driver_cores", "driver_memory", .... also "pyspark_job_main_file_s3_path" whih needs to be modified to be the spark .py file in this project e.g "s3a://workflows/raw_api_search_spark_load/scripts/sp_api_search_load.py"
+        * "s3a://workflows/" is the root path that the project folder is to be deployed in MinIO
+        * "spark_dependencies_libraries" contains all the required jar files required for the spark job. jar files can be added in the following path : "/workflows/sys/libs/"
+        * "spark_details"."spark_job_args" contains the following arguments that can be modified for each job:
+            > "project_dir_name": this is the main project name (Folder name of the project)
+            > "output_warehouse_fq_table": target table name in DigiXT (Tirno) e.g. "raw.rmcore.apis_bagtag" where raw is the catalog name and must already exists, rmcore is the schema name in tirno which must be created if not exist in the specified catalog, apis_bagtag is the target table name
+            > "output_wh_table_load_strategy": is the loading startegy which can be "merge_upsert" this is Update then insert startegy and it must have the merge_data_join_fields defined, "insert_overwrite" which drops and recreates the iceberg file, "append" which appends in the iceberg file
+            > "column_for_incremental" is the source column to check for new data over the target data. it is usually the same as the "partitioning_column"
+            > "is_incremental": true for incremental load
+            > "auto_table_creation" ture for auto create the table in Trino if table not exists based on the fetched metadata
+            > "db_details" contains the argument info for each source table database
+    - "airflow-task-dependencies-details": this is in which we can define the dependencies between the defined tasks (which will execute after Start and which will execute after any other task and which after finish will go to end)
+    - "airflow-dag-details": this contains the3 dag_id and dag description.
+        * The dag_id that is defined in this project must be added in the Airflow variable "AIRFLOW_PIPELINES" by editing it through Airflow Admin UI and you can add a dictionary for this dag_id with its details [catalog, schedule_interval, start_date (if not specified then mapped to 30 days before current), dataset_outlet_flag, retries, retry_delay, tags, task_status_mail_flag (dafaul value = true)] like the following:
+            "raw_api_search_spark_load_dag":
+            {
+                "catalog":"raw",
+                "schedule_interval":"45 4 * * *",
+                "dataset_outlet_flag":true,
+                "tags":["spark","api_search_load"]
+            }
+        * in the airflow variable "AIRFLOW_DAG_DEFAULT_ARGS" you can add the email to configs like this:
+            {
+                "email_to":["mostafa.fathy@icp.gov.ae"],
+                "email_on_failure":true,
+                "email_on_success":true
+            }
+    - There is a python script that can generate the tasks and their dependencies for the config file
+
+The config file name in the config folder must be the exact name as the .py file in the flows folder
+
+There is no need to change anything in the airflow .py file for this job pattern
+
+in the spark script .py file in the scripts folder this line is to be changed to the path of the project name sys.path.append("/workflows/raw_api_search_spark_load/")
+
+In Airflow when it generates the spark-submit command it adds to it --spark.hadoop.custom.arguments in which it passes a json data with all custom configs and arguments. this "spark.hadoop.custom.arguments" is then read by the method "initialize_read_arguments" using json.loads(sc.getConf().get('spark.hadoop.custom.arguments')).
+This initialize_read_arguments returns spark (spark session), sc (spark context), spark_app_name (this is the first argument passed by the airflow generated spark-submit command - these are the keys inside the dict "airflow-task-details" in the config file in config folder), spark_job_args, cluster_details_spark_args, minio_s3_credentials,vendor_credentials
+spark_job_args are the configs in the dict "spark_details"."spark_job_args" in each task in the "airflow-task-details" dict in the config file. it is also updated with the following:
+    - using this command spark_job_args["python_dependencies_base_paths"] = Constants.DEFAULT_PYSPARK_DEPENDENCIES_LOCAL_PATH if the key "python_dependencies_base_paths" is not mentioned in the config file. DEFAULT_PYSPARK_DEPENDENCIES_LOCAL_PATH = "" by defaul in this project.
+    - spark_job_args["dag_id"] = the dag_id that is defined in the config file in "airflow-dag-details"."dag_id"
+    - spark_job_args['db_details']['password'] = source_db_password , source_db_password = Variable.get('udb_password', None) -- this will be get from the vault in digiXT
+    - The key "catalog_minio_bucket" is also added into "spark_job_args" (this is the bucket name for the defined catalog so if the catalog for this dag_id is "raw" in the AIRFLOW_PIPELINES VARIABLE then the bucket will be "raw" as defined in the "GLOBALS" variable)
+
+
+
+
+
+airflow_var_globals is a variable read from the airflow vailable "GLOBALS" which have the following variables:
+{
+    "querybook_api_jobs":"https://qb-devdigixt.corestg.ae/ds/data_job_metadata/",
+    "querybook_api_metastores":"https://qb-devdigixt.corestg.ae/ds/admin/query_metastore/",
+    "querybook_api_key":"e1ecd77cab7b4801b335ca44a07e9d75",
+    "hive_raw_metastore_uri":"thrift://raw-hive-metastore.datalake.svc.cluster.local:9083",
+    "hive_transformed_metastore_uri":"thrift://transformed-hive-metastore.datalake.svc.cluster.local:9083",
+    "hive_curated_metastore_uri":"thrift://curated-hive-metastore.datalake.svc.cluster.local:9083",
+    "env_name":"Dev",
+    "querybook_metastores":{
+         "raw":"raw",
+         "transformed":"transformed",
+         "curated":"curated"
+    },
+    "k8s_connection_id":"kubernetes_default",
+    "k8s_namespace":"spark-jobs",
+    "k8s_service_account":"spark-operator-sa",
+    "k8s_pod_ttl":120,
+    "object_storage":"s3",
+    "s3_host":"https://minio-api-devdigixt.corestg.ae",
+    "s3_access_key":"y4TkV0iIpO",
+    "s3_secret_access_key":"dIIWGaobc5HMX86jkXIMNEgdyIDNWhBf",
+    "s3_region":"us-east-1",
+    "s3_signature_version":"s3v4",
+    "s3_spark_logging_path":"s3a://system/spark-hs/logs",
+    "spark_image":"ht227nkhrv01.corestg.ae/nkptools/spark-hadoop-scala-py-saal:9",
+    "pyspark_image":"ht227nkhrv01.corestg.ae/nkptools/spark-hadoop-scala-py-saal:9",
+    "spark_version": "3.1.1",
+    "volume_details": {
+        "volumes_name":"spark-workflows-jar-pvc",
+        "volumes_claim_name":"spark-workflows-jar-pvc",
+        "volume_mounts_mount_path": "/workflows",
+        "volume_mounts_name": "spark-workflows-jar-pvc",
+        "ca_bundle_volume_name":"ca-bundle",
+        "ca_bundle_volume_mount_path":"/etc/ssl/certs/ca-bundle.crt",
+        "ca_bundle_volume_mount_sub_path":"ca-certificates.crt",
+        "key_store_volume_name":"ca-keystore",
+        "key_store_volume_mount_path":"/usr/local/openjdk-11/lib/security/cacerts",
+        "key_store_volume_mount_java17_path":"/opt/bitnami/java/lib/security/cacerts",
+        "key_store_volume_mount_sub_path":"java-store.jks"
+    },
+    "querybook_config": {
+        "api_jobs": "https://qb-devdigixt.corestg.ae/ds/data_job_metadata/",
+        "api_metastores": "https://qb-devdigixt.corestg.ae/ds/admin/query_metastore/",
+        "api_key":"e1ecd77cab7b4801b335ca44a07e9d75",
+        "metastores": {
+            "raw": "raw",
+            "transformed": "transformed",
+            "curated":"curated"
+            },
+            "metastore_name":"raw"
+        },
+    "trino_connectrion_string": "trino://datalake:Datalake@2023@trino-devdigixt.corestg.ae:443",
+    "trino_airflow_connections": {
+        "raw": "trino-raw",
+        "transformed": "trino-transformed",
+        "curated": "trino-curated"
+    },
+    "trino_catalogs": {
+        "raw": "raw",
+        "transformed": "transformed",
+        "curated":"curated"
+    },
+    "buckets": {
+        "system": "system",
+        "workflows": "workflows",
+        "data-quality" : "data-quality",
+        "raw": "raw",
+        "transformed": "transformed",
+        "curated": "curated"
+    },
+    "metastores": {
+        "raw": "thrift://raw-hive-metastore.datalake.svc.cluster.local:9083",
+        "transformed": "thrift://transformed-hive-metastore.datalake.svc.cluster.local:9083",
+        "curated": "thrift://curated-hive-metastore.datalake.svc.cluster.local:9083"
+    },
+    "airflow_url": "https://devdigixt.corestg.ae/airflow",
+    "spark_ui_proxy_redirect_uri":"https://devdigixt.corestg.ae"
+}
+
+
+airflow_var_pipelines is a variable read from the airflow vailable "AIRFLOW_PIPELINES" which have the following variables for defined for each dag_id:
+[catalog, schedule_interval, start_date (if not specified then mapped to 30 days before current), dataset_outlet_flag, retries, retry_delay, tags, task_status_mail_flag (dafaul value = true)] like the following:
+            "raw_api_search_spark_load_dag":
+            {
+                "catalog":"raw",
+                "schedule_interval":"45 4 * * *",
+                "dataset_outlet_flag":true,
+                "tags":["spark","api_search_load"]
+            }
+
+airflow_var_dag_details has the dict that is for this project dag only whci is defined in the "AIRFLOW_PIPELINES" airflow variable and it is updated with the below:
+    - airflow_var_dag_details["schedule_interval"] = None if the "schedule_interval" is not defined for this dag_id
+    airflow_var_dag_details["start_date"] = now minus 30 days if not defined for this dag_id
+
+
+cluster_details_spark_args is generated from the above variables airflow_var_dag_details, airflow_var_globals as the following:
+cluster_details_spark_args = 
+        {
+            "s3_credentials": 
+            {
+                "s3_host": airflow_var_globals["s3_host"],
+                 "s3_access_key": airflow_var_globals["s3_access_key"],
+                "s3_secret_access_key": airflow_var_globals["s3_secret_access_key"],
+                "s3_region": airflow_var_globals["s3_region"],
+                "s3_signature_version": airflow_var_globals["s3_signature_version"]
+            }
+            ,"https_proxy": airflow_var_globals.get("https_proxy", Constants.DEFAULT_AIRFLOW_HTTPS_PROXY)
+            ,"catalog": airflow_var_dag_details.get("catalog", None)
+            ,"catalog_minio_bucket": airflow_var_globals["buckets"][airflow_var_dag_details["catalog"]] if airflow_var_dag_details.get("catalog",None) is not None else None   ##(this is the bucket name for the defined catalog so if the catalog for this dag_id is "raw" then the bucket will be "raw" as defined in the GLOBALS variable)##
+            ,"global_vars": airflow_var_globals,
+             "airflow_var_dag_details": airflow_var_dag_details
+        }
+
+
+hadoop_custom_arguments = {
+            "spark_job_args": spark_job_args, "cluster_details_spark_args": cluster_details_spark_args
+        }
+then "spark.hadoop.custom.arguments": json.dumps(hadoop_custom_arguments, default=str)
+
+"spark.hadoop.custom.arguments" is part of a much bigger json data which is (spark_submit_application_config derived from the funtion KubernetesSparkSetup.build_k8s_pyspark_configuration) that has the following main dicts:
+    - "apiVersion"
+    - "kind"
+    - "metadata"
+    - "spec" which included "sparkConf" which includes "spark.hadoop.custom.arguments" among other info
+
+
+The below is how to generate the spark jobs and append them to a list:
+        spark_submit_application_config = KubernetesSparkSetup.build_k8s_pyspark_configuration
+        (
+            "{}".format(task_group_key) ## task_group_key is the task name defined in the config file
+            ,spark_kubernetes_args
+            ,spark_job_args
+            ,airflow_var_globals
+            ,airflow_var_dag_details
+            ,job_arguments=["{}".format(task_group_key)]
+            ,dag_id=dag_id
+        )
+
+        app_file  = yaml.dump(spark_submit_application_config)
+
+        spark_kubernetes_operator_args = 
+        {
+            "namespace": airflow_var_globals["k8s_namespace"],
+            "kubernetes_conn_id": airflow_var_globals["k8s_connection_id"],
+            "application_file": app_file
+        }
+        spark_kubernetes_sensor_args = {
+            "namespace": airflow_var_globals["k8s_namespace"],
+            "kubernetes_conn_id": airflow_var_globals["k8s_connection_id"],
+            "application_name": task_group_key, "attach_log": True
+        }
+        spark_job = CustomSparkKubernetesSubmitMonitor(task_id="{}".format(task_group_key),
+                                                       spark_kubernetes_operator_args=spark_kubernetes_operator_args,
+                                                       spark_kubernetes_sensor_args=spark_kubernetes_sensor_args,
+                                                       global_vars=airflow_var_globals,
+                                                       dag=dag,
+                                                       trigger_rule=task_args_details['trigger_rule']
+                                                       )
+        spark_job is an instance of the class CustomSparkKubernetesSubmitMonitor which has a method "execute" in which spark_operator = SparkKubernetesOperator(task_id='spark-submit-task', **self.spark_kubernetes_operator_args) then try this command: spark_operator.execute(context)
+
+        The Airflow task is the one to call .execute(context) for each spark job instance when the airflow job is triggered
+        
+        airflow_tasks_list.append(spark_job)
+
+        in the Airflow python file the dag_arguments is read by common_dag_module.DagCommons.read_dag_details function and it will contain the following:
+
+        {
+            "dag_id": ##This is defined in the config file##
+            ,"default_args": dag_default_args ##dictionary extracted from the "AIRFLOW_DAG_DEFAULT_ARGS" variable which is currently defined with email_to, email_on_failure, email_on_success and enriched with dag_default_args["retries"] = airflow_var_dag_details["retries"] (airflow_var_dag_details is got from AIRFLOW_PIPELINES for this project dag_id) and if retries is not defined then it will be be dag_default_args["retries"] = 1. Also we can define retry_delay in the AIRFLOW_PIPELINES dict for this dag_id)
+            ,"description": airflow_dag_details_from_config.get("dag_description", "")
+            ,"schedule_interval": airflow_var_dag_details.get("schedule_interval", None)
+            ,"start_date": airflow_var_dag_details["start_date"]
+            ,"catchup": False
+            ,"tags": airflow_var_dag_details.get("tags", None)
+        }
+
+        dag_default_args is in an Airflow Variable called "AIRFLOW_DAG_DEFAULT_ARGS" and it is currenty defined as this:
+        {
+            "email_to":["merhawi@saa.ai"],
+            "email_on_failure":true,
+            "email_on_success":true
+        }
+
+
+- The class: class CustomSparkKubernetesSubmitMonitor(BaseOperator) which is defined in the common_utils.flows.custom_operator.py has a paernt class BaseOperator from airflow.models library
+- The BaseOperator has list of attributes which is inherited to the custom class CustomSparkKubernetesSubmitMonitor which includes: self.task_id, self.trigger_rule, self.owner, self.dag (class object)
+- so in the following code:
+with DAG(**dag_arguments) as dag:
+    common_dag_module.DagCommons.build_task_group(dag, configs, airflow_var_globals, airflow_var_dag_details, dag_id)
+here are notes to it:
+
+    # all the code within with DAG will be the airflow Dag flow construction 
+    # "**dag_arguments" will be expanded to be dag_id= "#dag_id#", description="#description#",schedule_interval=#interval#,start_date=#start_dat#,catchup=#catchup#,default_args={#default_args#}
+    # These expanded dag_arguments will be pass to the attributes of the class instantiation "dag" of the class type DAG.
+    # this  instantiation "dag" is an attribute for the class BaseOperator
+    # build_task_group is used to build the Airflow spark jobs (operators) - using the function build_spark_details - and the dependencies between the jobs - using build_task_dependencies -
+    # 

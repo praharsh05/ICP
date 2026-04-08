@@ -18,7 +18,6 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     """User creation model"""
-    ldap_dn: Optional[str] = None
     roles: List[str] = Field(default_factory=list)
     groups: List[str] = Field(default_factory=list)
 
@@ -37,7 +36,6 @@ class UserUpdate(BaseModel):
 class User(UserBase):
     """User model"""
     id: str = Field(default_factory=lambda: str(uuid4()))
-    ldap_dn: Optional[str] = None
     roles: List[str] = Field(default_factory=list)
     groups: List[str] = Field(default_factory=list)
     active: bool = True

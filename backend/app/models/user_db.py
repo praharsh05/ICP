@@ -22,7 +22,6 @@ class UserDB(Base):
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
     display_name = Column(String(255), nullable=True)
-    ldap_dn = Column(Text, nullable=True, index=True)
     roles = Column(ARRAY(String), default=[], nullable=False)
     groups = Column(ARRAY(String), default=[], nullable=False)
     active = Column(Boolean, default=True, nullable=False)

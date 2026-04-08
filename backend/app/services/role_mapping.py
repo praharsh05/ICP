@@ -1,5 +1,5 @@
 """
-Role mapping service for LDAP groups to application roles
+Role mapping service for groups to application roles
 """
 import os
 import yaml
@@ -10,7 +10,7 @@ from pathlib import Path
 
 class RoleMappingService:
     """
-    Service for mapping LDAP groups to application roles
+    Service for mapping groups to application roles
     """
     
     def __init__(self, config_path: str = None):
@@ -49,17 +49,17 @@ class RoleMappingService:
             "default": ["viewer"]
         }
     
-    def map_groups_to_roles(self, ldap_groups: List[str]) -> List[str]:
+    def map_groups_to_roles(self, groups: List[str]) -> List[str]:
         """
-        Map LDAP groups to application roles.
-        
+        Map groups to application roles.
+
         Args:
-            ldap_groups: List of LDAP group DNs or names
-        
+            groups: List of group names
+
         Returns:
             List of application roles
         """
-        if not ldap_groups:
+        if not groups:
             return self.mapping_config.get("default", ["viewer"])
         
         roles: Set[str] = set()
@@ -68,7 +68,7 @@ class RoleMappingService:
         direct_mapping = {k: v for k, v in self.mapping_config.items() 
                          if k not in ["patterns", "default"]}
         
-        for group in ldap_groups:
+        for group in groups:
             # Check for exact match
             if group in direct_mapping:
                 roles.update(direct_mapping[group])
@@ -86,18 +86,18 @@ class RoleMappingService:
         
         return sorted(list(roles))
     
-    def get_roles_for_user(self, ldap_groups: List[str]) -> List[str]:
+    def get_roles_for_user(self, groups: List[str]) -> List[str]:
         """
-        Get roles for a user based on their LDAP groups.
+        Get roles for a user based on their groups.
         Alias for map_groups_to_roles for clarity.
-        
+
         Args:
-            ldap_groups: List of LDAP group DNs or names
-        
+            groups: List of group names
+
         Returns:
             List of application roles
         """
-        return self.map_groups_to_roles(ldap_groups)
+        return self.map_groups_to_roles(groups)
 
 
 # Global instance

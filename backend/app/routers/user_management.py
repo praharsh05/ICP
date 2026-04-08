@@ -145,7 +145,7 @@ async def reset_password(
     # For now, this is a placeholder
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Password reset via token not yet implemented. Use LDAP password change."
+        detail="Password reset via token not yet implemented."
     )
 
 
@@ -171,32 +171,31 @@ async def get_my_roles(
 
 
 @router.post("/refresh-roles")
-async def refresh_roles_from_ldap(
+async def refresh_roles(
     current_user: UserDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Refresh user roles from LDAP groups.
-    Useful when LDAP group membership changes.
-    
+    Refresh user roles from groups.
+
     Args:
         current_user: Current authenticated user
         db: Database session
-    
+
     Returns:
         Updated roles
     """
     from app.services.role_mapping import role_mapping_service
-    
+
     # Re-map roles from current groups
     updated_roles = role_mapping_service.map_groups_to_roles(current_user.groups or [])
-    
+
     current_user.roles = updated_roles
     db.commit()
     db.refresh(current_user)
-    
+
     return {
-        "message": "Roles refreshed from LDAP groups",
+        "message": "Roles refreshed from groups",
         "roles": current_user.roles,
         "groups": current_user.groups
     }

@@ -78,7 +78,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
               <p className="text-primary-100 text-sm mt-1">
                 {showPasswordReset 
                   ? 'Enter your email to receive a reset link'
-                  : 'Login with your LDAP credentials'}
+                  : 'Login with your credentials'}
               </p>
             </div>
             <button

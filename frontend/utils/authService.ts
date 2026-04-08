@@ -199,7 +199,7 @@ class AuthService {
   }
 
   /**
-   * Refresh user roles from LDAP
+   * Refresh user roles
    */
   async refreshRoles(): Promise<User> {
     const response = await this.authenticatedFetch(

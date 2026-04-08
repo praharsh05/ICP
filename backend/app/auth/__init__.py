@@ -1,11 +1,9 @@
 """
-Authentication module — Keycloak OIDC
+Authentication module — supports Keycloak OIDC and local JWT (flag-based).
 """
-from .keycloak_auth import verify_keycloak_token, extract_user_info
-from .authentication import get_current_user
+from .authentication import get_current_user, authenticate_user
 
 __all__ = [
-    "verify_keycloak_token",
-    "extract_user_info",
     "get_current_user",
+    "authenticate_user",
 ]

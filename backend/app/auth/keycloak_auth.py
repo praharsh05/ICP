@@ -2,20 +2,16 @@
 Keycloak OIDC token validation.
 
 Validates Keycloak-issued JWTs using the realm's public keys (JWKS endpoint).
-Keycloak handles all authentication.
+Only active when AUTH_PROVIDER=keycloak.
 """
-import os
 import httpx
 from typing import Optional, Dict, Any
 from jose import jwt, JWTError
 from fastapi import HTTPException, status
 
-KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
-KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "icp")
-KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "icp-frontend")
+from app.config import KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID
 
 JWKS_URL = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/certs"
-ISSUER = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}"
 
 # In-memory JWKS cache — refreshed when a key mismatch is detected
 _jwks_cache: Optional[Dict] = None
@@ -44,12 +40,6 @@ def _clear_jwks_cache():
 async def verify_keycloak_token(token: str) -> Dict[str, Any]:
     """
     Verify a Keycloak access token and return its claims.
-
-    Steps:
-      1. Decode the JWT header to get the key ID (kid).
-      2. Find the matching public key in the realm's JWKS.
-      3. If not found, refresh the JWKS cache once and retry.
-      4. Verify the token signature and standard claims.
 
     Raises HTTPException 401 on any validation failure.
     """
@@ -92,7 +82,6 @@ async def verify_keycloak_token(token: str) -> Dict[str, Any]:
             token,
             matching_key,
             algorithms=["RS256"],
-            # Skip audience check — public clients don't set an audience by default
             options={"verify_aud": False},
         )
         return payload
@@ -115,9 +104,6 @@ _SYSTEM_ROLES = {
 def extract_user_info(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract standardized user information from Keycloak token claims.
-
-    Keycloak puts realm roles in payload["realm_access"]["roles"].
-    Application-specific roles are filtered from built-in Keycloak roles.
     """
     realm_access = payload.get("realm_access", {})
     all_roles = realm_access.get("roles", [])

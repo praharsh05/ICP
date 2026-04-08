@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.db.neo4j_client import neo4j_client
 from app.db.postgres_client import init_db, engine
 from app.routers.family import router as family_router
+from app.routers import auth, users, user_management
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 load_dotenv(dotenv_path="backend/.env")  # if you run uvicorn from repo root
@@ -45,3 +46,6 @@ def shutdown_event():
     neo4j_client.close()
 
 app.include_router(family_router)
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(user_management.router)

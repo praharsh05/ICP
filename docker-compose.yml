@@ -87,7 +87,9 @@ services:
       - NEO4J_PASSWORD=password
       - NEO4J_DB=neo4j
       - SQL_ECHO=false
-      # Keycloak / OIDC Configuration
+      # Auth provider: "keycloak" or "local"
+      - AUTH_PROVIDER=keycloak
+      # Keycloak settings (only used when AUTH_PROVIDER=keycloak)
       - KEYCLOAK_URL=http://keycloak:8080
       - KEYCLOAK_REALM=icp
       - KEYCLOAK_CLIENT_ID=icp-frontend

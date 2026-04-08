@@ -2,7 +2,7 @@
 Keycloak OIDC token validation.
 
 Validates Keycloak-issued JWTs using the realm's public keys (JWKS endpoint).
-No LDAP dependency — Keycloak handles all authentication.
+Keycloak handles all authentication.
 """
 import os
 import httpx

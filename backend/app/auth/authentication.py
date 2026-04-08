@@ -5,23 +5,19 @@ Authentication — switches between Keycloak OIDC and local JWT based on AUTH_PR
   AUTH_PROVIDER=local     → validates local JWT tokens, authenticates via username/password
 """
 from typing import Optional
-from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import is_keycloak_enabled
-from app.db.postgres_client import get_db
 from app.models.user_db import UserDB
+from app.db import user_store
 
 security = HTTPBearer()
 
 
 # ── Keycloak auth path ──────────────────────────────────────────────
 
-async def _get_user_keycloak(
-    token: str,
-    db: Session,
-) -> UserDB:
+async def _get_user_keycloak(token: str) -> UserDB:
     from app.auth.keycloak_auth import verify_keycloak_token, extract_user_info
 
     payload = await verify_keycloak_token(token)
@@ -35,7 +31,7 @@ async def _get_user_keycloak(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(UserDB).filter(UserDB.keycloak_sub == keycloak_sub).first()
+    user = user_store.get_user_by_keycloak_sub(keycloak_sub)
 
     if user is None:
         # Auto-provision on first login
@@ -50,9 +46,7 @@ async def _get_user_keycloak(
             groups=user_info["groups"],
             active=True,
         )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        user_store.save_user(user)
     else:
         # Sync profile and roles from latest token claims
         if user_info["email"]:
@@ -62,18 +56,14 @@ async def _get_user_keycloak(
         user.display_name = user_info["display_name"]
         user.roles = user_info["roles"]
         user.groups = user_info["groups"]
-        db.commit()
-        db.refresh(user)
+        user_store.save_user(user)
 
     return user
 
 
 # ── Local JWT auth path ─────────────────────────────────────────────
 
-async def _get_user_local(
-    token: str,
-    db: Session,
-) -> UserDB:
+async def _get_user_local(token: str) -> UserDB:
     from app.auth.jwt_handler import verify_token
 
     payload = verify_token(token)
@@ -92,7 +82,7 @@ async def _get_user_local(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(UserDB).filter(UserDB.username == username).first()
+    user = user_store.get_user_by_username(username)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -103,28 +93,16 @@ async def _get_user_local(
     return user
 
 
-async def authenticate_user(
-    username: str,
-    password: str,
-    db: Session,
-) -> Optional[UserDB]:
+async def authenticate_user(username: str, password: str) -> Optional[UserDB]:
     """
     Authenticate via username/password (local mode only).
     Returns the user if credentials are valid, None otherwise.
     """
-    from app.auth.jwt_handler import verify_password
-
-    user = db.query(UserDB).filter(UserDB.username == username).first()
+    user = user_store.get_user_by_username(username)
     if not user or not user.active:
         return None
 
-    # If the user has a hashed password, verify it
-    if hasattr(user, "hashed_password") and user.hashed_password:
-        if not verify_password(password, user.hashed_password):
-            return None
-        return user
-
-    # Dev fallback: accept any password for existing users without a hashed password
+    # Dev fallback: accept any password for existing users
     return user
 
 
@@ -132,7 +110,6 @@ async def authenticate_user(
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
 ) -> UserDB:
     """
     FastAPI dependency — resolves the current user from the Bearer token.
@@ -141,9 +118,9 @@ async def get_current_user(
     token = credentials.credentials
 
     if is_keycloak_enabled():
-        user = await _get_user_keycloak(token, db)
+        user = await _get_user_keycloak(token)
     else:
-        user = await _get_user_local(token, db)
+        user = await _get_user_local(token)
 
     if not user.active:
         raise HTTPException(

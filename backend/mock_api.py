@@ -1,13 +1,10 @@
 
-from fastapi import FastAPI, Query, Depends
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import Dict, Any
-from sqlalchemy.orm import Session
 import time
 
-from app.db.postgres_client import init_db, get_db, engine
-from app.models.user_db import UserDB
 from app.routers import users, auth, user_management
 
 app = FastAPI(title="FamilyTree API (Mock)", version="0.1.0")
@@ -22,14 +19,9 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Initialize PostgreSQL on startup
 @app.on_event("startup")
 def startup_event():
-    try:
-        init_db()
-        print("✓ PostgreSQL database initialized")
-    except Exception as e:
-        print(f"⚠ Warning: Could not initialize PostgreSQL: {e}")
+    print("✓ In-memory user store loaded (3 test users: admin, analyst, viewer)")
 
 NOW = time.time()
 MOCK_GRAPH = {
@@ -274,23 +266,15 @@ def health():
     return {"status": "ok", "service": "FamilyTree API"}
 
 @app.get("/health/db")
-def health_db(db: Session = Depends(get_db)):
+def health_db():
     """Database health check endpoint"""
-    try:
-        # Test database connection
-        user_count = db.query(UserDB).count()
-        return {
-            "status": "ok",
-            "database": "connected",
-            "users_count": user_count,
-            "database_url": str(engine.url).replace(engine.url.password or "", "***") if engine.url.password else str(engine.url)
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "database": "disconnected",
-            "error": str(e)
-        }
+    from app.db import user_store
+    users = user_store.list_users()
+    return {
+        "status": "ok",
+        "storage": "in-memory",
+        "users_count": len(users),
+    }
 
 # Include routers
 app.include_router(users.router)

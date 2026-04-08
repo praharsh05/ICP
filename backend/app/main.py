@@ -1,16 +1,11 @@
-import os
 from fastapi import FastAPI
 from app.db.neo4j_client import neo4j_client
-from app.db.postgres_client import init_db, engine
 from app.routers.family import router as family_router
 from app.routers import auth, users, user_management
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-load_dotenv(dotenv_path="backend/.env")  # if you run uvicorn from repo root
-# or load_dotenv() if you run uvicorn from backend/ folder
-# app/main.py
+load_dotenv(dotenv_path="backend/.env")
 from fastapi.staticfiles import StaticFiles
-
 
 
 app = FastAPI(title="Family Graph API")
@@ -25,7 +20,6 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# quick health route to prove it loads
 
 @app.get("/health")
 def health():
@@ -33,13 +27,8 @@ def health():
 
 @app.on_event("startup")
 def startup_event():
-    # Initialize Neo4j connection
     neo4j_client.connect()
-    
-    # Initialize PostgreSQL database tables
-    # This will create tables if they don't exist
-    init_db()
-    print("✓ PostgreSQL database initialized")
+    print("✓ In-memory user store loaded (3 test users: admin, analyst, viewer)")
 
 @app.on_event("shutdown")
 def shutdown_event():

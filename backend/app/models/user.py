@@ -39,9 +39,8 @@ class User(UserBase):
     roles: List[str] = Field(default_factory=list)
     groups: List[str] = Field(default_factory=list)
     active: bool = True
-    last_sync: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

@@ -7,38 +7,31 @@ Behaviour depends on the AUTH_PROVIDER flag:
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
 from datetime import timedelta
 
 from app.config import is_keycloak_enabled, KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID
 from app.auth.authentication import get_current_user, authenticate_user
 from app.models.user import User
 from app.models.user_db import UserDB
-from app.db.postgres_client import get_db
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
-
-# ── Common endpoints ────────────────────────────────────────────────
 
 @router.get("/me", response_model=User)
 async def get_current_user_info(
     current_user: UserDB = Depends(get_current_user),
 ):
-    """Return current user info from the Bearer token."""
     return current_user
 
 
 @router.get("/provider")
 async def auth_provider():
-    """Return which auth provider is active so the frontend can adapt."""
     provider = "keycloak" if is_keycloak_enabled() else "local"
     return {"provider": provider}
 
 
 @router.post("/logout")
 async def logout():
-    """Logout hint. For Keycloak: call keycloak.logout() on the frontend."""
     if is_keycloak_enabled():
         return {
             "message": "Call keycloak.logout() on the frontend to end the Keycloak session.",
@@ -50,14 +43,8 @@ async def logout():
     return {"message": "Discard the token on the client side."}
 
 
-# ── Keycloak-only endpoints ─────────────────────────────────────────
-
 @router.get("/keycloak-config")
 async def keycloak_config():
-    """
-    Return Keycloak connection details for the frontend.
-    Only meaningful when AUTH_PROVIDER=keycloak.
-    """
     if not is_keycloak_enabled():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -70,17 +57,8 @@ async def keycloak_config():
     }
 
 
-# ── Local-only endpoints ────────────────────────────────────────────
-
 @router.post("/login")
-async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-):
-    """
-    Authenticate with username + password and return a local JWT.
-    Only meaningful when AUTH_PROVIDER=local.
-    """
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     if is_keycloak_enabled():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -89,7 +67,7 @@ async def login(
 
     from app.auth.jwt_handler import create_access_token
 
-    user = await authenticate_user(form_data.username, form_data.password, db)
+    user = await authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

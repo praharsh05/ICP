@@ -21,22 +21,22 @@ def check_person_exists(spm_person_no: str):
     """
     cypher = """
     MATCH (p)
-    WHERE (p:Citizen OR p:Resident) AND p.spm_person_no = $id
+    WHERE (p:Person OR p:Resident) AND p.spm_person_no = $id
     RETURN p, labels(p) AS labels
     LIMIT 1
     """
-    
+
     rows = neo4j_client.run(cypher, {"id": spm_person_no})
-    
+
     if not rows or not rows[0]:
         return {"exists": False, "person_type": None}
-    
+
     labels = rows[0].get("labels", [])
     person_type = None
-    if "Citizen" in labels:
-        person_type = "citizen"
-    elif "Resident" in labels:
+    if "Resident" in labels:
         person_type = "resident"
+    elif "Person" in labels:
+        person_type = "citizen"
     
     return {"exists": True, "person_type": person_type}
 
